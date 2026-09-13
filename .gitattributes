@@ -1,0 +1,6 @@
+* text=auto
+*.lua text eol=lf
+*.md text eol=lf
+*.ps1 text eol=lf
+
+/ubermensch.lua linguist-generated

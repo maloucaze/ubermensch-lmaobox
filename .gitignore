@@ -1,0 +1,21 @@
+# LMAOBox runtime state
+/ubermensch_position_v1.txt
+
+# Builds
+/ubermensch.lua
+/ubermensch_validation.lua
+
+# Lua tooling caches and temporary output
+/.tools/
+/.luacheckcache
+/build/
+*.luac
+*.tmp
+*.log
+
+# Editor and operating-system files
+/.idea/
+/.vscode/
+*.swp
+.DS_Store
+Thumbs.db

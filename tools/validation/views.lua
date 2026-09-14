@@ -321,7 +321,7 @@ end
 -- @return table Privacy-safe decision evidence.
 function Views:decision(info)
     local model = info.model
-    return {
+    local decision = {
         capture_sequence = info.sequence,
         capture_source = info.source,
         capture_stage = info.stage,
@@ -330,12 +330,17 @@ function Views:decision(info)
         local_team = info.tracking.local_team,
         local_class = info.tracking.local_class,
         local_alive = info.tracking.local_alive,
-        self_mode = model ~= nil and model.self_mode or nil,
         local_side = model ~= nil and self:side(model.local_side) or nil,
         enemy_side = model ~= nil and self:side(model.enemy_side) or nil,
         comparison = model ~= nil and model.comparison or nil,
         prepared = Views.prepared(info.prepared),
     }
+    -- Lua's `a and false or nil` idiom loses a legitimate false value. Assign
+    -- explicitly so team-comparison mode remains distinguishable from no model.
+    if model ~= nil then
+        decision.self_mode = model.self_mode
+    end
+    return decision
 end
 
 --- Builds a compact key for observable output, selection, and source changes.
@@ -347,7 +352,6 @@ function Views.decision_key(decision)
     local local_side = decision.local_side or {}
     local enemy_side = decision.enemy_side or {}
     return Json.encode({
-        capture_source = decision.capture_source,
         roster_available = decision.roster_available,
         local_uid = local_side.uid,
         enemy_uid = enemy_side.uid,

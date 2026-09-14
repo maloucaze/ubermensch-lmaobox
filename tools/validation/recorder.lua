@@ -49,6 +49,29 @@ local function table_count(values)
     return count
 end
 
+--- Copies capture-route counters into immutable log payload storage.
+-- @param self Recorder instance.
+-- @return table Preferred, fallback, and unexpected-route counts.
+local function capture_source_counts(self)
+    return {
+        preferred = self.capture_sources.preferred,
+        fallback = self.capture_sources.fallback,
+        other = self.capture_sources.other,
+    }
+end
+
+--- Increments the aggregate for the frame-stage route used by one capture.
+-- Unexpected values remain visible without creating unbounded dictionary keys.
+-- @param self Recorder instance.
+-- @param source Controller capture-source label.
+local function count_capture_source(self, source)
+    if source == "preferred" or source == "fallback" then
+        self.capture_sources[source] = self.capture_sources[source] + 1
+    else
+        self.capture_sources.other = self.capture_sources.other + 1
+    end
+end
+
 --- Adds a record through the bounded writer.
 -- @param self Recorder instance.
 -- @param kind Stable record kind.
@@ -329,6 +352,61 @@ local function checkpoint_view(self, info)
     }
 end
 
+--- Reduces one display side to facts that identify the selected slot or state.
+-- Charge and field sources are intentionally omitted so ordinary value changes
+-- cannot create expensive full selection checkpoints.
+-- @param side Privacy-safe selected side, missing side, or nil.
+-- @return table Stable identity view.
+local function selection_side(side)
+    if side == nil then
+        return { state = "unknown" }
+    end
+    if side.missing == true then
+        return {
+            state = "missing",
+            team = side.team,
+        }
+    end
+    return {
+        state = "medic",
+        uid = side.uid,
+        entity_index = side.entity_index,
+        team = side.team,
+    }
+end
+
+--- Builds the compact identity fingerprint used for selection transitions.
+-- @param decision Projected product decision.
+-- @return table Local/enemy selection identity and comparison mode.
+local function selection_view(decision)
+    return {
+        self_mode = decision.self_mode,
+        local_side = selection_side(decision.local_side),
+        enemy_side = selection_side(decision.enemy_side),
+    }
+end
+
+--- Records complete upstream evidence whenever either selected identity changes.
+-- This record bypasses the 10 Hz detail ceiling because a one-capture selection
+-- transition must remain diagnosable even when it reverses immediately.
+-- @param self Recorder instance.
+-- @param info Synchronous controller capture notification.
+-- @param decision Projected decision for the capture.
+-- @param now Current monotonic time.
+local function record_selection_transition(self, info, decision, now)
+    local selection = selection_view(decision)
+    local key = Json.encode(selection)
+    if key == self.last_selection_key then
+        return
+    end
+    local evidence = checkpoint_view(self, info)
+    evidence.previous_selection = self.last_selection
+    evidence.selection = selection
+    append(self, "selection_checkpoint", evidence, now)
+    self.last_selection_key = key
+    self.last_selection = selection
+end
+
 --- Resolves the software-defined recorder limits.
 -- Overrides are accepted only by unit tests; the bundled entrypoint exposes no
 -- user configuration surface.
@@ -375,12 +453,19 @@ function Recorder.new(host, test_limits)
         events = 0,
         decisions = 0,
         markers = 0,
+        capture_sources = {
+            preferred = 0,
+            fallback = 0,
+            other = 0,
+        },
         last_heartbeat = now,
         last_checkpoint = now,
         last_detail = -math.huge,
         last_map = nil,
         last_context_key = nil,
         last_decision_key = nil,
+        last_selection_key = nil,
+        last_selection = nil,
         last_blocker = nil,
         pending_draw_sequence = nil,
         last_drawn_sequence = nil,
@@ -460,6 +545,7 @@ function Recorder:on_capture(info)
     local now = info.snapshot.now
     local views = self.views
     self.captures = self.captures + 1
+    count_capture_source(self, info.source)
     local context = {
         capture_sequence = info.sequence,
         source = info.source,
@@ -476,8 +562,6 @@ function Recorder:on_capture(info)
         observed_weapon_count = info.snapshot.observed_weapon_count,
     }
     local context_key = Json.encode({
-        source = context.source,
-        stage = context.stage,
         map = context.map,
         round_state = context.round_state,
         phase = context.phase,
@@ -503,6 +587,7 @@ function Recorder:on_capture(info)
         }, now)
         self.delta = new_delta_cache()
         self.last_decision_key = nil
+        self.last_selection_key = nil
         self.last_detail = -math.huge
     end
     self.last_map = info.snapshot.map
@@ -515,6 +600,7 @@ function Recorder:on_capture(info)
         self.last_decision_key = key
         self.pending_draw_sequence = info.sequence
     end
+    record_selection_transition(self, info, decision, now)
 
     if map_changed
         or now - self.last_detail >= self.limits.detail_interval
@@ -531,6 +617,7 @@ function Recorder:on_capture(info)
             events = self.events,
             decisions = self.decisions,
             markers = self.markers,
+            capture_sources = capture_source_counts(self),
             tracker_records = table_count(info.tracker.records),
             candidates = #info.tracking.candidates,
             queued_events = #info.tracker.events,
@@ -579,11 +666,12 @@ function Recorder:on_draw(decision_sequence, rendered, blocker, prepared)
         and decision_sequence >= self.pending_draw_sequence
     then
         append(self, "draw", {
-            decision_sequence = decision_sequence,
+            decision_sequence = self.pending_draw_sequence,
+            consumed_capture_sequence = decision_sequence,
             rendered = true,
             prepared = Views.prepared(prepared),
         }, now)
-        self.last_drawn_sequence = decision_sequence
+        self.last_drawn_sequence = self.pending_draw_sequence
         self.pending_draw_sequence = nil
     elseif not rendered and blocker ~= self.last_blocker then
         append(self, "draw_blocked", {
@@ -656,6 +744,7 @@ function Recorder:close(reason, decision_sequence)
             events = self.events,
             decisions = self.decisions,
             markers = self.markers,
+            capture_sources = capture_source_counts(self),
             dropped_records = self.writer.dropped_records,
             parts = #self.writer.paths,
         }, now)

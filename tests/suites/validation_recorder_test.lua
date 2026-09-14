@@ -49,9 +49,12 @@ Harness.test("validation runtime records real decisions events Draw and marker",
 
     local output = all_output(memory)
     Harness.contains(output, '"type":"session_start"')
+    Harness.contains(output, '"recorder_version":"1.1.0"')
     Harness.contains(output, '"type":"event"')
     Harness.contains(output, '"name":"player_chargedeployed"')
     Harness.contains(output, '"type":"decision"')
+    Harness.contains(output, '"self_mode":false')
+    Harness.contains(output, '"type":"selection_checkpoint"')
     Harness.contains(output, '"type":"draw"')
     Harness.contains(output, '"type":"marker"')
     Harness.contains(output, '"type":"weapon"')
@@ -120,6 +123,86 @@ Harness.test("unchanged captures are delta suppressed", function()
     local output = all_output(memory)
     Harness.equal(count_occurrences(output, '"type":"decision"'), 1)
     Harness.equal(count_occurrences(output, '"type":"context"'), 1)
+    Harness.equal(count_occurrences(output, '"type":"selection_checkpoint"'), 1)
+end)
+
+Harness.test("capture route alternation is aggregated without delta noise", function()
+    local host, memory = Fakes.validation_host()
+    local recorder = Recorder.new(host, {
+        detail_interval = 100,
+        flush_interval = 100,
+        checkpoint_interval = 100,
+        heartbeat_interval = 100,
+    })
+    local app = App.start(host, {
+        observer = recorder,
+        adapter_diagnostics = true,
+    })
+    Harness.truthy(app ~= nil)
+    host.state.callbacks.FrameStageNotify(4)
+    host.state.callbacks.FrameStageNotify(5)
+    host.state.callbacks.FrameStageNotify(5)
+    host.state.callbacks.Unload()
+
+    local output = all_output(memory)
+    Harness.equal(count_occurrences(output, '"type":"decision"'), 1)
+    Harness.equal(count_occurrences(output, '"type":"context"'), 1)
+    Harness.equal(count_occurrences(output, '"type":"selection_checkpoint"'), 1)
+    Harness.contains(
+        output,
+        '"capture_sources":{"fallback":1,"other":0,"preferred":1}'
+    )
+end)
+
+Harness.test("Draw links a logged decision to the capture it consumed", function()
+    local host, memory = Fakes.validation_host()
+    local recorder = Recorder.new(host, {
+        detail_interval = 100,
+        flush_interval = 100,
+        checkpoint_interval = 100,
+        heartbeat_interval = 100,
+    })
+    local app = App.start(host, {
+        observer = recorder,
+        adapter_diagnostics = true,
+    })
+    Harness.truthy(app ~= nil)
+    host.state.callbacks.FrameStageNotify(4)
+    host.state.callbacks.FrameStageNotify(5)
+    host.state.callbacks.FrameStageNotify(5)
+    host.state.callbacks.Draw()
+    host.state.callbacks.Unload()
+
+    local output = all_output(memory)
+    Harness.contains(
+        output,
+        '"consumed_capture_sequence":2,"decision_sequence":1'
+    )
+end)
+
+Harness.test("selection changes receive immediate full evidence", function()
+    local host, memory = Fakes.validation_host()
+    local recorder = Recorder.new(host, {
+        detail_interval = 100,
+        flush_interval = 100,
+        checkpoint_interval = 100,
+        heartbeat_interval = 100,
+    })
+    local app = App.start(host, {
+        observer = recorder,
+        adapter_diagnostics = true,
+    })
+    Harness.truthy(app ~= nil)
+    host.state.callbacks.FrameStageNotify(4)
+    host.state.players[2].options.alive = false
+    host.state.callbacks.FrameStageNotify(4)
+    host.state.callbacks.Unload()
+
+    local output = all_output(memory)
+    Harness.equal(count_occurrences(output, '"type":"selection_checkpoint"'), 2)
+    Harness.contains(output, '"current_alive":false')
+    Harness.contains(output, '"previous_selection"')
+    Harness.contains(output, '"state":"missing"')
 end)
 
 Harness.test("heartbeats checkpoints and callback faults are durable", function()

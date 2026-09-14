@@ -77,22 +77,26 @@ local function observe(state, method, ...)
     end
 end
 
---- Removes every stable callback identifier, tolerating a previous partial load.
+--- Removes every stable callback identifier before registration or an explicit stop.
+-- These calls must remain direct: the live host executes callback functions
+-- registered through `pcall`, but does not associate their script with the Lua
+-- panel's loaded lifecycle.
 -- @param host Host libraries.
 local function unregister_all(host)
-    Safe.library(host.callbacks, "Unregister", "FrameStageNotify", Constants.CALLBACK.frame)
-    Safe.library(host.callbacks, "Unregister", "FireGameEvent", Constants.CALLBACK.event)
-    Safe.library(host.callbacks, "Unregister", "Draw", Constants.CALLBACK.draw)
-    Safe.library(host.callbacks, "Unregister", "Unload", Constants.CALLBACK.unload)
+    host.callbacks.Unregister("FrameStageNotify", Constants.CALLBACK.frame)
+    host.callbacks.Unregister("FireGameEvent", Constants.CALLBACK.event)
+    host.callbacks.Unregister("Draw", Constants.CALLBACK.draw)
+    host.callbacks.Unregister("Unload", Constants.CALLBACK.unload)
 end
 
---- Registers one guarded callback that disables only its failing path.
+--- Registers one callback directly while guarding its later execution.
+-- Direct registration preserves LMAOBox script ownership; only the callback
+-- body is protected so one unexpected path failure remains isolated.
 -- @param state Application state containing path flags and warning output.
 -- @param callback_name LMAOBox callback type.
 -- @param identifier Stable reload-safe identifier.
 -- @param path Fault-isolation path name.
 -- @param action Callback action.
--- @return boolean Whether registration succeeded.
 local function register_guarded(state, callback_name, identifier, path, action)
     local callback = function(...)
         if state.paths[path] == false then
@@ -111,14 +115,7 @@ local function register_guarded(state, callback_name, identifier, path, action)
             )
         end
     end
-    local ok = Safe.library(
-        state.host.callbacks,
-        "Register",
-        callback_name,
-        identifier,
-        callback
-    )
-    return ok
+    state.host.callbacks.Register(callback_name, identifier, callback)
 end
 
 --- Reports changing pre-render blockers within a fixed startup-only budget.
@@ -219,16 +216,21 @@ function App.start(host, options)
         observer = options.observer,
     }
 
-    local function stop()
+    local function stop(host_is_unloading)
         if state.stopped then
             return
         end
         state.stopped = true
         controller:on_unload()
-        unregister_all(host)
+        -- LMAOBox removes this script's callbacks after Unload returns. Calling
+        -- Unregister during that dispatch crashes the tested host. Explicit
+        -- non-host stops still own and remove the complete callback set.
+        if not host_is_unloading then
+            unregister_all(host)
+        end
     end
 
-    local registered = register_guarded(
+    register_guarded(
         state,
         "FrameStageNotify",
         Constants.CALLBACK.frame,
@@ -248,7 +250,8 @@ function App.start(host, options)
                 )
             end
         end
-    ) and register_guarded(
+    )
+    register_guarded(
         state,
         "FireGameEvent",
         Constants.CALLBACK.event,
@@ -256,7 +259,8 @@ function App.start(host, options)
         function(event)
             controller:on_event(event)
         end
-    ) and register_guarded(
+    )
+    register_guarded(
         state,
         "Draw",
         Constants.CALLBACK.draw,
@@ -265,20 +269,20 @@ function App.start(host, options)
             local rendered, blocker = controller:on_draw()
             report_hud_startup(state, rendered, blocker)
         end
-    ) and register_guarded(
+    )
+    register_guarded(
         state,
         "Unload",
         Constants.CALLBACK.unload,
         "unload",
-        stop
+        function()
+            stop(true)
+        end
     )
 
-    if not registered then
-        stop()
-        print_function(Constants.PREFIX .. " callback registration failed")
-        return nil
+    state.stop = function()
+        stop(false)
     end
-    state.stop = stop
     print_function(Constants.PREFIX .. " loaded v" .. Constants.VERSION)
     return state
 end

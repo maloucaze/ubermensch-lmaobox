@@ -229,6 +229,7 @@ function Fakes.host(options)
         released = false,
         key_pressed = {},
         font_creations = 0,
+        host_unloading = false,
     }
     local host = {}
 
@@ -319,6 +320,9 @@ function Fakes.host(options)
             return true
         end,
         Unregister = function(name, identifier)
+            if state.host_unloading then
+                error("callback unregistration during host Unload")
+            end
             state.callbacks[name] = nil
             state.unregistered[#state.unregistered + 1] = name .. ":" .. identifier
             return true
@@ -331,6 +335,25 @@ function Fakes.host(options)
     host.mouse_left = 107
     host.state = state
     return host
+end
+
+--- Simulates LMAOBox's script-owned Unload dispatch and automatic teardown.
+-- The fake rejects explicit callback removal during dispatch to preserve the
+-- live crash regression, then removes the script's callbacks as the host does.
+-- @param host Fake host returned by `Fakes.host`.
+function Fakes.unload(host)
+    local state = host.state
+    local callback = state.callbacks.Unload
+    if callback == nil then
+        return
+    end
+    state.host_unloading = true
+    local ok, failure = pcall(callback)
+    state.host_unloading = false
+    state.callbacks = {}
+    if not ok then
+        error(failure, 0)
+    end
 end
 
 function Fakes.validation_host()

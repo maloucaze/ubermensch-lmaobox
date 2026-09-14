@@ -42,9 +42,60 @@ Harness.test("stable callback IDs register and unload cleanly", function()
     })
     Harness.falsy(string.find(Constants.CALLBACK.frame, "v2", 1, true))
     Harness.truthy(host.state.callbacks.Unload ~= nil)
-    host.state.callbacks.Unload()
+    host.state.unregistered = {}
+    Fakes.unload(host)
     Harness.is_nil(host.state.callbacks.Draw)
     Harness.is_nil(host.state.callbacks.FrameStageNotify)
+    Harness.equal(#host.state.unregistered, 0)
+    Harness.truthy(app.controller.unloaded)
+end)
+
+Harness.test("callback registration is not hidden inside a protected call", function()
+    local host = Fakes.host({})
+    local original_pcall = pcall
+    local ok, result = original_pcall(function()
+        _G.pcall = function(action, ...)
+            if action == host.callbacks.Register then
+                return false, "protected registration loses script ownership"
+            end
+            return original_pcall(action, ...)
+        end
+        return App.start(host)
+    end)
+    _G.pcall = original_pcall
+    if not ok then
+        error(result, 0)
+    end
+    Harness.truthy(result ~= nil)
+    Harness.equal(#host.state.registered, 4)
+    result.stop()
+end)
+
+Harness.test("host unload never unregisters callbacks during dispatch", function()
+    local host = Fakes.host({})
+    local app = App.start(host)
+    host.state.unregistered = {}
+    Fakes.unload(host)
+    Harness.truthy(app.controller.unloaded)
+    Harness.equal(#host.state.unregistered, 0)
+    Harness.same_table(host.state.prints, {
+        "[Ubermensch] loaded v" .. Constants.VERSION,
+    })
+end)
+
+Harness.test("explicit stop unregisters every callback once", function()
+    local host = Fakes.host({})
+    local app = App.start(host)
+    host.state.unregistered = {}
+    app.stop()
+    Harness.same_table(host.state.unregistered, {
+        "FrameStageNotify:" .. Constants.CALLBACK.frame,
+        "FireGameEvent:" .. Constants.CALLBACK.event,
+        "Draw:" .. Constants.CALLBACK.draw,
+        "Unload:" .. Constants.CALLBACK.unload,
+    })
+    app.stop()
+    Harness.equal(#host.state.unregistered, 4)
 end)
 
 Harness.test("optional persistence failure does not prevent startup", function()

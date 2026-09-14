@@ -135,7 +135,6 @@ try {
         Get-Item -LiteralPath 'ubermensch_validation.lua'
         Get-ChildItem -LiteralPath 'src', 'tests' -Filter '*.lua' -File -Recurse
         Get-ChildItem -LiteralPath 'tools\validation' -Filter '*.lua' -File -Recurse
-        Get-Item -LiteralPath 'tools\ubermensch_probe.lua'
     ) | Sort-Object -Property FullName -Unique
 
     foreach ($luaFile in $luaFiles) {

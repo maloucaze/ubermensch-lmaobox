@@ -137,7 +137,9 @@ end
 local function open_part(self, part)
     local filename = string.format("%s_part%02d.jsonl", self.stem, part)
     local path = self.directory .. "\\" .. filename
-    local ok, handle = pcall(self.file_api.open, path, "w")
+    -- Binary mode keeps byte accounting identical on Windows and prevents Lua
+    -- from expanding JSONL newlines to CRLF after the part limit was checked.
+    local ok, handle = pcall(self.file_api.open, path, "wb")
     if not ok or handle == nil then
         return false
     end
@@ -149,17 +151,17 @@ local function open_part(self, part)
     return true
 end
 
---- Builds one sequenced JSONL record without buffering it.
+--- Encodes one explicitly sequenced JSONL record without buffering it.
 -- @param self Writer instance.
+-- @param sequence Session-wide record sequence.
 -- @param kind Stable record kind.
 -- @param data Record payload.
 -- @param now Monotonic record time.
 -- @return string|nil JSON line, or nil after an encoding failure.
-local function make_line(self, kind, data, now)
-    self.record_sequence = self.record_sequence + 1
+local function encode_line(self, sequence, kind, data, now)
     local ok, encoded = pcall(Json.encode, {
         data = data or {},
-        seq = self.record_sequence,
+        seq = sequence,
         t = now,
         type = kind,
         v = ValidationConstants.FORMAT_VERSION,
@@ -169,6 +171,27 @@ local function make_line(self, kind, data, now)
         return nil
     end
     return encoded .. "\n"
+end
+
+--- Appends one prepared entry to the in-memory write queue.
+-- @param self Writer instance.
+-- @param line Encoded JSONL line.
+-- @param rotate_to Optional part number to open immediately before the line.
+local function queue_line(self, line, rotate_to)
+    self.buffer[#self.buffer + 1] = {
+        line = line,
+        rotate_to = rotate_to,
+    }
+    self.buffer_bytes = self.buffer_bytes + #line
+end
+
+--- Accounts for a record rejected by the bounded memory queue.
+-- A sequence is still consumed so the resulting gap exposes the loss.
+-- @param self Writer instance.
+local function record_drop(self)
+    self.record_sequence = self.record_sequence + 1
+    self.dropped_records = self.dropped_records + 1
+    self.pending_drops = self.pending_drops + 1
 end
 
 --- Adds one JSON record to bounded memory for a later non-Draw flush.
@@ -181,39 +204,49 @@ function Writer:append(kind, data, now)
     if self.disabled then
         return false
     end
-    local line = make_line(self, kind, data, now)
+    local sequence = self.record_sequence + 1
+    local line = encode_line(self, sequence, kind, data, now)
     if line == nil then
         return false
     end
-    if self.buffer_bytes + #line > self.max_buffer_bytes then
-        self.dropped_records = self.dropped_records + 1
-        self.pending_drops = self.pending_drops + 1
-        return false
-    end
-    self.buffer[#self.buffer + 1] = line
-    self.buffer_bytes = self.buffer_bytes + #line
-    return true
-end
 
---- Writes a segment-continuity header directly after rotation.
--- @param self Writer instance.
--- @param now Rotation time.
--- @return boolean Whether the header was written.
-local function write_segment_header(self, now)
-    local line = make_line(self, "segment_start", {
-        part = self.part,
-        previous_record_sequence = self.record_sequence - 1,
-        session = self.session,
-    }, now)
-    if line == nil then
+    local rotate_to
+    local header
+    local required_bytes = #line
+    if self.projected_part_bytes > 0
+        and self.projected_part_bytes + #line > self.max_file_bytes
+    then
+        rotate_to = self.projected_part + 1
+        header = encode_line(self, sequence, "segment_start", {
+            part = rotate_to,
+            previous_record_sequence = self.last_queued_sequence,
+            session = self.session,
+        }, now)
+        if header == nil then
+            return false
+        end
+        sequence = sequence + 1
+        line = encode_line(self, sequence, kind, data, now)
+        if line == nil then
+            return false
+        end
+        required_bytes = #header + #line
+    end
+
+    if self.buffer_bytes + required_bytes > self.max_buffer_bytes then
+        record_drop(self)
         return false
     end
-    local ok, failure = file_call(self.handle, "write", line)
-    if not ok then
-        self:disable(failure)
-        return false
+
+    if rotate_to ~= nil then
+        queue_line(self, header, rotate_to)
+        self.projected_part = rotate_to
+        self.projected_part_bytes = #header
     end
-    self.bytes_written = #line
+    queue_line(self, line)
+    self.record_sequence = sequence
+    self.last_queued_sequence = sequence
+    self.projected_part_bytes = self.projected_part_bytes + #line
     return true
 end
 
@@ -227,16 +260,13 @@ function Writer:flush(now)
         return not self.disabled
     end
     for index = 1, #self.buffer do
-        local line = self.buffer[index]
-        if self.bytes_written > 0
-            and self.bytes_written + #line > self.max_file_bytes
-        then
+        local entry = self.buffer[index]
+        local line = entry.line
+        if entry.rotate_to ~= nil then
             file_call(self.handle, "flush")
             file_call(self.handle, "close")
             self.handle = nil
-            if not open_part(self, self.part + 1)
-                or not write_segment_header(self, now)
-            then
+            if not open_part(self, entry.rotate_to) then
                 self:disable("cannot open rotated log part")
                 return false
             end
@@ -258,6 +288,8 @@ function Writer:flush(now)
     end
     self.buffer = {}
     self.buffer_bytes = 0
+    self.projected_part = self.part
+    self.projected_part_bytes = self.bytes_written
     self.last_flush = now
     return true
 end
@@ -287,8 +319,11 @@ function Writer.new(host, now, limits)
         buffer_bytes = 0,
         bytes_written = 0,
         part = 0,
+        projected_part = 0,
+        projected_part_bytes = 0,
         disabled = false,
         record_sequence = 0,
+        last_queued_sequence = 0,
         dropped_records = 0,
         pending_drops = 0,
         last_flush = now,
@@ -315,6 +350,8 @@ function Writer.new(host, now, limits)
             self.session = stem
         end
         if stem ~= nil and open_part(self, 1) then
+            self.projected_part = self.part
+            self.projected_part_bytes = self.bytes_written
             break
         end
     end

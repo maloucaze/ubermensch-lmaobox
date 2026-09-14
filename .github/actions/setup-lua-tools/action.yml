@@ -1,0 +1,67 @@
+name: Set up Lua development tools
+description: Install checksum-pinned LuaRocks, Luacheck, and LDoc on Windows
+
+runs:
+  using: composite
+  steps:
+    - name: Install LuaRocks, Luacheck, and LDoc
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        Set-StrictMode -Version Latest
+
+        $luaRocksVersion = '3.13.0'
+        $luaRocksSha256 = '0897ADE5D459D55CD1962A948153745A6749FEB345403C68AAA9207388557AB9'
+        $archiveName = "luarocks-$luaRocksVersion-windows-64.zip"
+        $archivePath = Join-Path $env:RUNNER_TEMP $archiveName
+        $installPath = Join-Path $env:RUNNER_TEMP "luarocks-$luaRocksVersion"
+        $rockTree = Join-Path $env:RUNNER_TEMP 'ubermensch-rocks'
+        $luaDirectory = Join-Path $env:GITHUB_WORKSPACE '.lua'
+        if (-not (Test-Path -LiteralPath (Join-Path $luaDirectory 'include\lua.h'))) {
+            throw "The installed Lua development headers were not found under $luaDirectory."
+        }
+
+        Invoke-WebRequest `
+            -UseBasicParsing `
+            -Uri "https://luarocks.github.io/luarocks/releases/$archiveName" `
+            -OutFile $archivePath
+
+        $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $archivePath).Hash
+        if ($actualSha256 -cne $luaRocksSha256) {
+            throw "LuaRocks archive checksum mismatch: expected $luaRocksSha256, got $actualSha256."
+        }
+
+        Expand-Archive -LiteralPath $archivePath -DestinationPath $installPath
+        $luaRocks = Get-ChildItem `
+            -LiteralPath $installPath `
+            -Filter 'luarocks.exe' `
+            -File `
+            -Recurse |
+            Select-Object -First 1
+        if ($null -eq $luaRocks) {
+            throw 'The verified LuaRocks archive did not contain luarocks.exe.'
+        }
+
+        & $luaRocks.FullName `
+            --no-project `
+            --lua-dir $luaDirectory `
+            --tree $rockTree `
+            install luacheck 1.2.0
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        & $luaRocks.FullName `
+            --no-project `
+            --lua-dir $luaDirectory `
+            --tree $rockTree `
+            install ldoc 1.5.0
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        $toolBin = Join-Path $rockTree 'bin'
+        $toolBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+        & (Join-Path $toolBin 'luacheck.bat') --version
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        & (Join-Path $toolBin 'ldoc.bat') --version
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        Remove-Item -LiteralPath $archivePath -Force

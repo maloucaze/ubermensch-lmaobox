@@ -29,16 +29,8 @@ jobs:
         with:
           luaVersion: "5.1.5"
 
-      - name: Install LuaRocks
-        uses: leafo/gh-actions-luarocks@35d062def313a7699a0d513e996bcf4352f05389 # v6
-
       - name: Install development checks
-        shell: pwsh
-        run: |
-          luarocks install luacheck 1.2.0
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          luarocks install ldoc 1.5.0
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        uses: ./.github/actions/setup-lua-tools
 
       - name: Validate release tag
         shell: pwsh

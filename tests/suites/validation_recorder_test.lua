@@ -81,6 +81,33 @@ Harness.test("Draw appends evidence without flushing files", function()
     host.state.callbacks.Unload()
 end)
 
+Harness.test("held F8 input records one marker per physical press", function()
+    local host, memory = Fakes.validation_host()
+    local recorder = Recorder.new(host, { flush_interval = 100 })
+    local app = App.start(host, {
+        observer = recorder,
+        adapter_diagnostics = true,
+    })
+    Harness.truthy(app ~= nil)
+    host.state.callbacks.FrameStageNotify(4)
+
+    host.state.key_pressed[99] = true
+    host.state.callbacks.Draw()
+    host.state.callbacks.Draw()
+    host.state.callbacks.Draw()
+    host.state.key_pressed[99] = false
+    host.state.callbacks.Draw()
+    host.state.key_pressed[99] = true
+    host.state.callbacks.Draw()
+    host.state.callbacks.Draw()
+    host.state.callbacks.Unload()
+
+    local output = all_output(memory)
+    Harness.equal(count_occurrences(output, '"type":"marker"'), 2)
+    Harness.equal(count_occurrences(output, '"number":1'), 1)
+    Harness.equal(count_occurrences(output, '"number":2'), 1)
+end)
+
 Harness.test("observer failure is isolated from product capture and Draw", function()
     local host = Fakes.validation_host()
     local observer = {

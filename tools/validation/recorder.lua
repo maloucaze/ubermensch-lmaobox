@@ -453,6 +453,7 @@ function Recorder.new(host, test_limits)
         events = 0,
         decisions = 0,
         markers = 0,
+        marker_held = false,
         capture_sources = {
             preferred = 0,
             fallback = 0,
@@ -687,7 +688,7 @@ function Recorder:on_draw(decision_sequence, rendered, blocker, prepared)
         "IsButtonPressed",
         key
     )
-    if pressed_ok and pressed == true then
+    if pressed_ok and pressed == true and not self.marker_held then
         self.markers = self.markers + 1
         append(self, "marker", {
             number = self.markers,
@@ -702,6 +703,9 @@ function Recorder:on_draw(decision_sequence, rendered, blocker, prepared)
                 .. tostring(self.markers)
                 .. " recorded"
         )
+    end
+    if pressed_ok then
+        self.marker_held = pressed == true
     end
 end
 

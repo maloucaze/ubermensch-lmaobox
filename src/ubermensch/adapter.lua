@@ -616,9 +616,21 @@ function Adapter:capture()
     local current_by_index = {}
     local weapon_candidates = {}
     local weapons_by_key = {}
-    for i = 1, #player_entities do
-        local observation = inspect_player(player_entities[i])
-        if observation.index ~= nil then
+    local enumerated_player_count = #player_entities
+    for i = 1, enumerated_player_count + 1 do
+        local player_entity = player_entities[i]
+        if i > enumerated_player_count then
+            -- LMAOBox can omit the local player from CTFPlayer enumeration even
+            -- while GetLocalPlayer returns a usable entity. Inspect that entity
+            -- through the normal boundary path only when enumeration missed it.
+            if local_index ~= nil and current_by_index[local_index] == nil then
+                player_entity = local_entity
+            end
+        end
+        local observation = player_entity ~= nil
+            and inspect_player(player_entity)
+            or nil
+        if observation ~= nil and observation.index ~= nil then
             observation.userid = player_userid(host, observation.index)
             local resource_row = resource_by_index[observation.index]
             if observation.userid ~= nil
@@ -701,7 +713,7 @@ function Adapter:capture()
                     loadout_is_medigun = observation.loadout_is_medigun,
                 }
             end
-        elseif diagnostics ~= nil then
+        elseif observation ~= nil and diagnostics ~= nil then
             diagnostics.current_players[#diagnostics.current_players + 1] = {
                 entity_index = nil,
                 valid_read = observation.valid_read,

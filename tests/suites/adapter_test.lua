@@ -87,6 +87,51 @@ Harness.test("loadout discovery works with empty direct enumeration", function()
     Harness.equal(row_by_userid(snapshot, 20).current_family, "KRITZ")
 end)
 
+Harness.test("local Medic omitted from player enumeration is still inspected", function()
+    local families = {
+        { item = 29, family = "STOCK" },
+        { item = 35, family = "KRITZ" },
+    }
+    for i = 1, #families do
+        local expected = families[i]
+        local weapon_options = {
+            index = 100 + i,
+            item = expected.item,
+            local_charge = 0.42,
+            deployed = true,
+            holstered = false,
+        }
+        local weapon = Fakes.weapon(weapon_options)
+        local player = Fakes.player({
+            index = 1,
+            team = 2,
+            class = 5,
+            alive = true,
+            loadout_weapon = weapon,
+            active_weapon = weapon,
+        })
+        weapon_options.owner = player
+        local host = Fakes.host({
+            players = {},
+            direct_weapons = {},
+            local_player = player,
+            userids = { [1] = 10 },
+        })
+
+        local snapshot = Adapter.new(host, true):capture()
+        local row = row_by_userid(snapshot, 10)
+        Harness.equal(snapshot.diagnostics.player_enumeration_count, 0)
+        Harness.equal(#snapshot.diagnostics.current_players, 1)
+        Harness.equal(snapshot.observed_weapon_count, 1)
+        Harness.equal(row.current_family, expected.family)
+        Harness.equal(row.current_charge, 42)
+        Harness.equal(row.current_deployed, true)
+        Harness.same_table(weapon.options.float_reads, {
+            "LocalTFWeaponMedigunData.m_flChargeLevel",
+        })
+    end
+end)
+
 Harness.test("active loadout and direct observations deduplicate", function()
     local local_player, enemy_player, local_weapon, enemy_weapon = medic_pair()
     local host = Fakes.host({

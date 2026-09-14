@@ -202,6 +202,56 @@ Harness.test("new current charge appears on the immediately following Draw model
     Harness.equal(controller.latest_prepared.lines[2], "BLU 91% (KRITZ)")
 end)
 
+Harness.test("omitted local Medic reaches the next Draw through GetLocalPlayer", function()
+    local weapon_options = {
+        index = 101,
+        item = 35,
+        local_charge = 0.42,
+        deployed = false,
+        holstered = false,
+    }
+    local weapon = Fakes.weapon(weapon_options)
+    local player = Fakes.player({
+        index = 1,
+        team = 2,
+        class = 5,
+        alive = true,
+        loadout_weapon = weapon,
+        active_weapon = weapon,
+    })
+    weapon_options.owner = player
+    local host = Fakes.host({
+        players = {},
+        direct_weapons = {},
+        local_player = player,
+        userids = { [1] = 10 },
+        resource = Fakes.resource({
+            [1] = {
+                connected = true,
+                valid = true,
+                alive = true,
+                team = 2,
+                userid = 10,
+                class = 5,
+                charge = 42,
+            },
+        }),
+    })
+    local controller = Controller.new({
+        adapter = Adapter.new(host),
+        renderer = assert(Renderer.new(host)),
+        persistence = { save = function() return true end },
+        position = Position.new(),
+    })
+
+    Harness.truthy(controller:on_frame_stage(Constants.FRAME_NET_UPDATE_END))
+    Harness.equal(controller.latest_prepared.lines[1], "RED 42% (KRITZ)")
+    local acquisition_calls = host.state.acquisition_calls
+    Harness.truthy(controller:on_draw())
+    Harness.equal(host.state.acquisition_calls, acquisition_calls)
+    Harness.equal(count_calls(host.state.draw_calls, "text"), 3)
+end)
+
 Harness.test("partial current loss estimates only missing fields and warns", function()
     local controller, host, ally, enemy = setup()
     controller:on_frame_stage(4)

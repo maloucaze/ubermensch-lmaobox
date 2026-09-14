@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions: {}
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Configure MSVC
+        uses: step-security/msvc-dev-cmd@22c98154b708dbd743e6f27a933cf6ceba3305c4 # v1
+
+      - name: Install Lua
+        uses: leafo/gh-actions-lua@6919171ccf181b826f44b9bca76307b577217377 # v13
+        with:
+          luaVersion: "5.1.5"
+
+      - name: Install LuaRocks
+        uses: leafo/gh-actions-luarocks@35d062def313a7699a0d513e996bcf4352f05389 # v6
+
+      - name: Install development checks
+        shell: pwsh
+        run: |
+          luarocks install luacheck 1.2.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          luarocks install ldoc 1.5.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Validate release tag
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') {
+              throw "Release tag is not semantic: $tag"
+          }
+
+          $match = Select-String `
+              -LiteralPath 'src/ubermensch/constants.lua' `
+              -Pattern 'Constants\.VERSION\s*=\s*"([^"]+)"'
+          if ($null -eq $match -or $match.Matches.Count -ne 1) {
+              throw 'Could not read exactly one runtime version.'
+          }
+
+          $expected = 'v' + $match.Matches[0].Groups[1].Value
+          if ($tag -cne $expected) {
+              throw "Release tag $tag does not match runtime version $expected."
+          }
+
+      - name: Generate runtimes
+        shell: powershell
+        run: |
+          ./tools/build_runtime.ps1
+          ./tools/build_validation_runtime.ps1
+
+      - name: Run repository checks
+        shell: powershell
+        run: ./tools/check.ps1
+
+      - name: Create checksum manifest
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath 'ubermensch.lua').Hash.ToLowerInvariant()
+          Set-Content `
+              -LiteralPath 'SHA256SUMS.txt' `
+              -Value "$hash  ubermensch.lua" `
+              -Encoding ascii
+
+      - name: Upload validation runtime
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ubermensch-validation-runtime
+          path: ubermensch_validation.lua
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+              gh release upload $tag ubermensch.lua SHA256SUMS.txt --clobber
+          } else {
+              gh release create $tag ubermensch.lua SHA256SUMS.txt `
+                  --verify-tag `
+                  --generate-notes `
+                  --title "Ubermensch $tag"
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

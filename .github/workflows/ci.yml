@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lua ${{ matrix.lua }}
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        lua:
+          - "5.1.5"
+          - "5.4.8"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Configure MSVC
+        uses: step-security/msvc-dev-cmd@22c98154b708dbd743e6f27a933cf6ceba3305c4 # v1
+
+      - name: Install Lua
+        uses: leafo/gh-actions-lua@6919171ccf181b826f44b9bca76307b577217377 # v13
+        with:
+          luaVersion: ${{ matrix.lua }}
+
+      - name: Install LuaRocks
+        uses: leafo/gh-actions-luarocks@35d062def313a7699a0d513e996bcf4352f05389 # v6
+
+      - name: Install development checks
+        shell: pwsh
+        run: |
+          luarocks install luacheck 1.2.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          luarocks install ldoc 1.5.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Generate runtimes
+        shell: powershell
+        run: |
+          ./tools/build_runtime.ps1
+          ./tools/build_validation_runtime.ps1
+
+      - name: Run repository checks
+        shell: powershell
+        run: ./tools/check.ps1
+
+      - name: Verify deterministic runtime generation
+        shell: powershell
+        run: |
+          $mainPath = Join-Path $env:RUNNER_TEMP 'ubermensch-rebuilt.lua'
+          $validationPath = Join-Path $env:RUNNER_TEMP 'ubermensch-validation-rebuilt.lua'
+          ./tools/build_runtime.ps1 -OutputPath $mainPath
+          ./tools/build_validation_runtime.ps1 -OutputPath $validationPath
+
+          $mainExpected = (Get-FileHash -Algorithm SHA256 -LiteralPath 'ubermensch.lua').Hash
+          $mainActual = (Get-FileHash -Algorithm SHA256 -LiteralPath $mainPath).Hash
+          if ($mainExpected -cne $mainActual) {
+              throw 'Main runtime generation is not deterministic.'
+          }
+
+          $validationExpected = (Get-FileHash -Algorithm SHA256 -LiteralPath 'ubermensch_validation.lua').Hash
+          $validationActual = (Get-FileHash -Algorithm SHA256 -LiteralPath $validationPath).Hash
+          if ($validationExpected -cne $validationActual) {
+              throw 'Validation runtime generation is not deterministic.'
+          }
+
+      - name: Upload generated runtimes
+        if: matrix.lua == '5.1.5'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ubermensch-runtimes
+          path: |
+            ubermensch.lua
+            ubermensch_validation.lua
+          if-no-files-found: error
+          retention-days: 7
+
+  required:
+    name: Required
+    if: ${{ always() }}
+    needs:
+      - verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every verification job
+        shell: bash
+        run: test "${{ needs.verify.result }}" = "success"

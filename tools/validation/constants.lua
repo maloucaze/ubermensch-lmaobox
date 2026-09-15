@@ -4,13 +4,13 @@
 local Constants = {}
 
 Constants.FORMAT_VERSION = 1
-Constants.RECORDER_VERSION = "1.1.0"
+Constants.RECORDER_VERSION = "1.2.0"
 Constants.PREFIX = "[Ubermensch Validation]"
 Constants.DIRECTORY = "ubermensch-validation"
 Constants.FILE_PREFIX = "ubermensch_validation"
-Constants.FLUSH_INTERVAL = 2
+Constants.FLUSH_INTERVAL = 5
 Constants.HEARTBEAT_INTERVAL = 5
-Constants.CHECKPOINT_INTERVAL = 15
+Constants.CHECKPOINT_INTERVAL = 30
 Constants.DETAIL_INTERVAL = 0.1
 Constants.MAX_BUFFER_BYTES = 512 * 1024
 Constants.MAX_FILE_BYTES = 64 * 1024 * 1024

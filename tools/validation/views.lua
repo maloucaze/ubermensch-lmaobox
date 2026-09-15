@@ -1,8 +1,6 @@
 --- Privacy-safe projections of live product and adapter state.
 -- @module validation.views
 
-local Json = require("validation.json")
-
 local Views = {}
 Views.__index = Views
 
@@ -183,7 +181,6 @@ function Views:weapon(row)
         owner_hint = row.owner_hint,
         source_loadout = row.source_loadout,
         source_active = row.source_active,
-        source_direct = row.source_direct,
         canonical = row.canonical,
         current = row.current,
         family = row.family,
@@ -341,31 +338,6 @@ function Views:decision(info)
         decision.self_mode = model.self_mode
     end
     return decision
-end
-
---- Builds a compact key for observable output, selection, and source changes.
--- Raw sub-percent movement is represented by detail deltas and does not emit a
--- full decision until it changes displayed text or a selected field source.
--- @param decision Projected decision evidence.
--- @return string Stable JSON key.
-function Views.decision_key(decision)
-    local local_side = decision.local_side or {}
-    local enemy_side = decision.enemy_side or {}
-    return Json.encode({
-        roster_available = decision.roster_available,
-        local_uid = local_side.uid,
-        enemy_uid = enemy_side.uid,
-        local_family_source = local_side.family_source,
-        enemy_family_source = enemy_side.family_source,
-        local_charge_source = local_side.charge_source,
-        enemy_charge_source = enemy_side.charge_source,
-        local_deployment_source = local_side.deployment_source,
-        enemy_deployment_source = enemy_side.deployment_source,
-        local_deployed = local_side.deployed,
-        enemy_deployed = enemy_side.deployed,
-        self_mode = decision.self_mode,
-        prepared = decision.prepared,
-    })
 end
 
 return Views

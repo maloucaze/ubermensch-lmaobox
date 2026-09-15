@@ -194,6 +194,28 @@ local function record_drop(self)
     self.pending_drops = self.pending_drops + 1
 end
 
+--- Writes one accumulated same-part batch and clears its reusable array.
+-- @param self Writer instance.
+-- @param count Number of populated batch entries.
+-- @return boolean Whether the write completed.
+local function write_batch(self, count)
+    if count == 0 then
+        return true
+    end
+    local batch = self.flush_batch
+    local payload = table.concat(batch, "", 1, count)
+    local ok, failure = file_call(self.handle, "write", payload)
+    if not ok then
+        self:disable(failure)
+        return false
+    end
+    self.bytes_written = self.bytes_written + #payload
+    for index = 1, count do
+        batch[index] = nil
+    end
+    return true
+end
+
 --- Adds one JSON record to bounded memory for a later non-Draw flush.
 -- Sequence gaps and final drop counters make any rejected record explicit.
 -- @param kind Stable record kind.
@@ -259,10 +281,15 @@ function Writer:flush(now)
     if self.disabled or #self.buffer == 0 then
         return not self.disabled
     end
+    local batch_count = 0
     for index = 1, #self.buffer do
         local entry = self.buffer[index]
         local line = entry.line
         if entry.rotate_to ~= nil then
+            if not write_batch(self, batch_count) then
+                return false
+            end
+            batch_count = 0
             file_call(self.handle, "flush")
             file_call(self.handle, "close")
             self.handle = nil
@@ -274,19 +301,20 @@ function Writer:flush(now)
                 ValidationConstants.PREFIX .. " rotated log: " .. self.path
             )
         end
-        local ok, failure = file_call(self.handle, "write", line)
-        if not ok then
-            self:disable(failure)
-            return false
-        end
-        self.bytes_written = self.bytes_written + #line
+        batch_count = batch_count + 1
+        self.flush_batch[batch_count] = line
+    end
+    if not write_batch(self, batch_count) then
+        return false
     end
     local ok, failure = file_call(self.handle, "flush")
     if not ok then
         self:disable(failure)
         return false
     end
-    self.buffer = {}
+    for index = 1, #self.buffer do
+        self.buffer[index] = nil
+    end
     self.buffer_bytes = 0
     self.projected_part = self.part
     self.projected_part_bytes = self.bytes_written
@@ -316,6 +344,7 @@ function Writer.new(host, now, limits)
         session = base_stem,
         paths = {},
         buffer = {},
+        flush_batch = {},
         buffer_bytes = 0,
         bytes_written = 0,
         part = 0,

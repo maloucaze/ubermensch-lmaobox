@@ -82,6 +82,176 @@ local function append(self, kind, data, now)
     return self.writer:append(kind, data, now)
 end
 
+--- Compares the latest capture context without serializing an unchanged table.
+-- @param self Recorder instance.
+-- @param info Controller capture notification.
+-- @param local_alias Privacy-safe local user alias.
+-- @return boolean Whether a context record is required.
+local function context_changed(self, info, local_alias)
+    local snapshot = info.snapshot
+    local previous = self.last_context
+    local changed = previous == nil
+        or previous.map ~= snapshot.map
+        or previous.round_state ~= snapshot.round_state
+        or previous.phase ~= snapshot.phase
+        or previous.is_mvm ~= snapshot.is_mvm
+        or previous.roster_available ~= snapshot.roster_available
+        or previous.local_alias ~= local_alias
+        or previous.local_team ~= snapshot.local_team
+        or previous.local_class ~= snapshot.local_class
+        or previous.local_alive ~= snapshot.local_alive
+        or previous.observed_weapon_count ~= snapshot.observed_weapon_count
+    if changed then
+        previous = previous or {}
+        previous.map = snapshot.map
+        previous.round_state = snapshot.round_state
+        previous.phase = snapshot.phase
+        previous.is_mvm = snapshot.is_mvm
+        previous.roster_available = snapshot.roster_available
+        previous.local_alias = local_alias
+        previous.local_team = snapshot.local_team
+        previous.local_class = snapshot.local_class
+        previous.local_alive = snapshot.local_alive
+        previous.observed_weapon_count = snapshot.observed_weapon_count
+        self.last_context = previous
+    end
+    return changed
+end
+
+--- Reads one selected side into allocation-free fingerprint values.
+-- @param side Product side, confirmed missing side, or nil.
+-- @return string Identity state.
+-- @return number|nil Server user ID.
+-- @return number|nil Entity index.
+-- @return number|nil Team number.
+-- @return string|nil Family source.
+-- @return string|nil Charge source.
+-- @return string|nil Deployment source.
+-- @return boolean|nil Deployment state.
+local function side_fingerprint(side)
+    if side == nil then
+        return "unknown", nil, nil, nil, nil, nil, nil, nil
+    end
+    if side.missing == true then
+        return "missing", nil, nil, side.team, nil, nil, nil, false
+    end
+    return "medic", side.userid, side.entity_index, side.team,
+        side.family_source, side.charge_source, side.deployment_source,
+        side.deployed
+end
+
+--- Preserves an explicit false comparison mode while representing no model as nil.
+-- @param model Product model or nil.
+-- @return boolean|nil Self-Medic mode, team mode, or unavailable model.
+local function self_mode(model)
+    if model ~= nil then
+        return model.self_mode
+    end
+    return nil
+end
+
+--- Compares the observable decision using flat scalar values.
+-- JSON projection is deferred until an actual decision change, avoiding a full
+-- allocation and encode at every high-frequency capture.
+-- @param self Recorder instance.
+-- @param info Controller capture notification.
+-- @return boolean Whether a decision record is required.
+local function decision_changed(self, info)
+    local model = info.model
+    local local_side = model ~= nil and model.local_side or nil
+    local enemy_side = model ~= nil and model.enemy_side or nil
+    local ls, lu, le, lt, lf, lc, ld, la = side_fingerprint(local_side)
+    local es, eu, ee, et, ef, ec, ed, ea = side_fingerprint(enemy_side)
+    local prepared = info.prepared
+    local lines = prepared ~= nil and prepared.lines or nil
+    local colors = prepared ~= nil and prepared.colors or nil
+    local previous = self.last_decision
+    local changed = previous == nil
+        or previous.roster_available ~= info.tracking.roster_available
+        or previous.local_state ~= ls or previous.local_userid ~= lu
+        or previous.local_entity ~= le or previous.local_team ~= lt
+        or previous.local_family_source ~= lf
+        or previous.local_charge_source ~= lc
+        or previous.local_deployment_source ~= ld
+        or previous.local_deployed ~= la
+        or previous.enemy_state ~= es or previous.enemy_userid ~= eu
+        or previous.enemy_entity ~= ee or previous.enemy_team ~= et
+        or previous.enemy_family_source ~= ef
+        or previous.enemy_charge_source ~= ec
+        or previous.enemy_deployment_source ~= ed
+        or previous.enemy_deployed ~= ea
+        or previous.self_mode ~= self_mode(model)
+        or previous.line1 ~= (lines ~= nil and lines[1] or nil)
+        or previous.line2 ~= (lines ~= nil and lines[2] or nil)
+        or previous.line3 ~= (lines ~= nil and lines[3] or nil)
+        or previous.color1 ~= (colors ~= nil and colors[1] or nil)
+        or previous.color2 ~= (colors ~= nil and colors[2] or nil)
+        or previous.color3 ~= (colors ~= nil and colors[3] or nil)
+        or previous.warning ~= (prepared ~= nil and prepared.warning or nil)
+    if changed then
+        previous = previous or {}
+        previous.roster_available = info.tracking.roster_available
+        previous.local_state = ls
+        previous.local_userid = lu
+        previous.local_entity = le
+        previous.local_team = lt
+        previous.local_family_source = lf
+        previous.local_charge_source = lc
+        previous.local_deployment_source = ld
+        previous.local_deployed = la
+        previous.enemy_state = es
+        previous.enemy_userid = eu
+        previous.enemy_entity = ee
+        previous.enemy_team = et
+        previous.enemy_family_source = ef
+        previous.enemy_charge_source = ec
+        previous.enemy_deployment_source = ed
+        previous.enemy_deployed = ea
+        previous.self_mode = self_mode(model)
+        previous.line1 = lines ~= nil and lines[1] or nil
+        previous.line2 = lines ~= nil and lines[2] or nil
+        previous.line3 = lines ~= nil and lines[3] or nil
+        previous.color1 = colors ~= nil and colors[1] or nil
+        previous.color2 = colors ~= nil and colors[2] or nil
+        previous.color3 = colors ~= nil and colors[3] or nil
+        previous.warning = prepared ~= nil and prepared.warning or nil
+        self.last_decision = previous
+    end
+    return changed
+end
+
+--- Reports whether either selected identity or comparison mode changed.
+-- @param self Recorder instance.
+-- @param model Current product model or nil.
+-- @return boolean Whether a selection checkpoint is required.
+local function selection_changed(self, model)
+    local local_side = model ~= nil and model.local_side or nil
+    local enemy_side = model ~= nil and model.enemy_side or nil
+    local ls, lu, le, lt = side_fingerprint(local_side)
+    local es, eu, ee, et = side_fingerprint(enemy_side)
+    local previous = self.selection_fingerprint
+    local changed = previous == nil
+        or previous.self_mode ~= self_mode(model)
+        or previous.local_state ~= ls or previous.local_userid ~= lu
+        or previous.local_entity ~= le or previous.local_team ~= lt
+        or previous.enemy_state ~= es or previous.enemy_userid ~= eu
+        or previous.enemy_entity ~= ee or previous.enemy_team ~= et
+    if changed then
+        previous = previous or {}
+        previous.self_mode = self_mode(model)
+        previous.local_state = ls
+        previous.local_userid = lu
+        previous.local_entity = le
+        previous.local_team = lt
+        previous.enemy_state = es
+        previous.enemy_userid = eu
+        previous.enemy_entity = ee
+        previous.enemy_team = et
+        self.selection_fingerprint = previous
+    end
+    return changed
+end
+
 --- Emits a changed keyed view and remembers its fingerprint.
 -- @param self Recorder instance.
 -- @param cache Cache category and emitted record type.
@@ -395,15 +565,11 @@ end
 -- @param now Current monotonic time.
 local function record_selection_transition(self, info, decision, now)
     local selection = selection_view(decision)
-    local key = Json.encode(selection)
-    if key == self.last_selection_key then
-        return
-    end
     local evidence = checkpoint_view(self, info)
     evidence.previous_selection = self.last_selection
     evidence.selection = selection
+    evidence.adapter_diagnostics_available = info.snapshot.diagnostics ~= nil
     append(self, "selection_checkpoint", evidence, now)
-    self.last_selection_key = key
     self.last_selection = selection
 end
 
@@ -462,10 +628,11 @@ function Recorder.new(host, test_limits)
         last_heartbeat = now,
         last_checkpoint = now,
         last_detail = -math.huge,
+        force_diagnostics = true,
         last_map = nil,
-        last_context_key = nil,
-        last_decision_key = nil,
-        last_selection_key = nil,
+        last_context = nil,
+        last_decision = nil,
+        selection_fingerprint = nil,
         last_selection = nil,
         last_blocker = nil,
         pending_draw_sequence = nil,
@@ -490,6 +657,19 @@ function Recorder.new(host, test_limits)
     self.print_function(ValidationConstants.PREFIX .. " recording: " .. writer.path)
     self.print_function(ValidationConstants.PREFIX .. " press F8 to add a marker")
     return self
+end
+
+--- Requests verbose adapter evidence only at the fixed detail cadence.
+-- Product snapshots, decisions, events, and Draw correlation remain immediate;
+-- this controls only the expensive raw boundary-diagnostic projection.
+-- @return boolean Whether the next capture should collect diagnostics.
+function Recorder:wants_diagnostics()
+    if self.writer.disabled or self.closed then
+        return false
+    end
+    local now = monotonic_time(self.host)
+    return self.force_diagnostics
+        or now - self.last_detail >= self.limits.detail_interval
 end
 
 --- Records relevant match or product events without retaining the GameEvent.
@@ -547,36 +727,23 @@ function Recorder:on_capture(info)
     local views = self.views
     self.captures = self.captures + 1
     count_capture_source(self, info.source)
-    local context = {
-        capture_sequence = info.sequence,
-        source = info.source,
-        stage = info.stage,
-        map = info.snapshot.map,
-        round_state = info.snapshot.round_state,
-        phase = info.snapshot.phase,
-        is_mvm = info.snapshot.is_mvm,
-        roster_available = info.snapshot.roster_available,
-        local_uid = views:user_alias(info.snapshot.local_userid),
-        local_team = info.snapshot.local_team,
-        local_class = info.snapshot.local_class,
-        local_alive = info.snapshot.local_alive,
-        observed_weapon_count = info.snapshot.observed_weapon_count,
-    }
-    local context_key = Json.encode({
-        map = context.map,
-        round_state = context.round_state,
-        phase = context.phase,
-        is_mvm = context.is_mvm,
-        roster_available = context.roster_available,
-        local_uid = context.local_uid,
-        local_team = context.local_team,
-        local_class = context.local_class,
-        local_alive = context.local_alive,
-        observed_weapon_count = context.observed_weapon_count,
-    })
-    if context_key ~= self.last_context_key then
-        append(self, "context", context, now)
-        self.last_context_key = context_key
+    local local_alias = views:user_alias(info.snapshot.local_userid)
+    if context_changed(self, info, local_alias) then
+        append(self, "context", {
+            capture_sequence = info.sequence,
+            source = info.source,
+            stage = info.stage,
+            map = info.snapshot.map,
+            round_state = info.snapshot.round_state,
+            phase = info.snapshot.phase,
+            is_mvm = info.snapshot.is_mvm,
+            roster_available = info.snapshot.roster_available,
+            local_uid = local_alias,
+            local_team = info.snapshot.local_team,
+            local_class = info.snapshot.local_class,
+            local_alive = info.snapshot.local_alive,
+            observed_weapon_count = info.snapshot.observed_weapon_count,
+        }, now)
     end
 
     local map_changed = self.last_map ~= nil and self.last_map ~= info.snapshot.map
@@ -587,27 +754,35 @@ function Recorder:on_capture(info)
             to = info.snapshot.map,
         }, now)
         self.delta = new_delta_cache()
-        self.last_decision_key = nil
-        self.last_selection_key = nil
+        self.last_decision = nil
+        self.selection_fingerprint = nil
         self.last_detail = -math.huge
+        self.force_diagnostics = true
     end
     self.last_map = info.snapshot.map
 
-    local decision = views:decision(info)
-    local key = Views.decision_key(decision)
-    if key ~= self.last_decision_key then
+    local changed_decision = decision_changed(self, info)
+    local changed_selection = selection_changed(self, info.model)
+    local decision
+    if changed_decision or changed_selection then
+        decision = views:decision(info)
+    end
+    if changed_decision then
         append(self, "decision", decision, now)
         self.decisions = self.decisions + 1
-        self.last_decision_key = key
         self.pending_draw_sequence = info.sequence
     end
-    record_selection_transition(self, info, decision, now)
+    if changed_selection then
+        record_selection_transition(self, info, decision, now)
+        if info.snapshot.diagnostics == nil then
+            self.force_diagnostics = true
+        end
+    end
 
-    if map_changed
-        or now - self.last_detail >= self.limits.detail_interval
-    then
+    if info.snapshot.diagnostics ~= nil then
         record_details(self, info, now)
         self.last_detail = now
+        self.force_diagnostics = false
     end
 
     if now - self.last_heartbeat >= self.limits.heartbeat_interval then
@@ -662,10 +837,29 @@ function Recorder:on_draw(decision_sequence, rendered, blocker, prepared)
         return
     end
     self.draws = self.draws + 1
-    local now = monotonic_time(self.host)
-    if rendered and self.pending_draw_sequence ~= nil
+    local record_draw = rendered and self.pending_draw_sequence ~= nil
         and decision_sequence >= self.pending_draw_sequence
-    then
+    local record_blocker = not rendered and blocker ~= self.last_blocker
+
+    local key = self.host.key_f8 or ValidationConstants.KEY_F8
+    local pressed_ok, pressed = Safe.library(
+        self.host.input,
+        "IsButtonPressed",
+        key
+    )
+    local record_marker = pressed_ok and pressed == true
+        and not self.marker_held
+    if pressed_ok then
+        self.marker_held = pressed == true
+    end
+
+    if not record_draw and not record_blocker and not record_marker then
+        self.last_blocker = rendered and nil or blocker
+        return
+    end
+
+    local now = monotonic_time(self.host)
+    if record_draw then
         append(self, "draw", {
             decision_sequence = self.pending_draw_sequence,
             consumed_capture_sequence = decision_sequence,
@@ -674,7 +868,7 @@ function Recorder:on_draw(decision_sequence, rendered, blocker, prepared)
         }, now)
         self.last_drawn_sequence = self.pending_draw_sequence
         self.pending_draw_sequence = nil
-    elseif not rendered and blocker ~= self.last_blocker then
+    elseif record_blocker then
         append(self, "draw_blocked", {
             decision_sequence = decision_sequence,
             blocker = blocker,
@@ -682,13 +876,7 @@ function Recorder:on_draw(decision_sequence, rendered, blocker, prepared)
     end
     self.last_blocker = rendered and nil or blocker
 
-    local key = self.host.key_f8 or ValidationConstants.KEY_F8
-    local pressed_ok, pressed = Safe.library(
-        self.host.input,
-        "IsButtonPressed",
-        key
-    )
-    if pressed_ok and pressed == true and not self.marker_held then
+    if record_marker then
         self.markers = self.markers + 1
         append(self, "marker", {
             number = self.markers,
@@ -703,9 +891,6 @@ function Recorder:on_draw(decision_sequence, rendered, blocker, prepared)
                 .. tostring(self.markers)
                 .. " recorded"
         )
-    end
-    if pressed_ok then
-        self.marker_held = pressed == true
     end
 end
 

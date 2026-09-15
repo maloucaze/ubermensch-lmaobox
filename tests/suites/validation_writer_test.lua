@@ -109,3 +109,18 @@ Harness.test("writer drops records instead of exceeding bounded memory", functio
     writer:flush(host.state.now)
     writer:close()
 end)
+
+Harness.test("writer batches same-part records into one physical write", function()
+    local host, memory = Fakes.validation_host()
+    local writer = Writer.new(host, host.state.now, {
+        max_file_bytes = 100000,
+        max_buffer_bytes = 100000,
+    })
+    for index = 1, 20 do
+        Harness.truthy(writer:append("synthetic", { index = index }, host.state.now))
+    end
+    local writes = memory.writes
+    Harness.truthy(writer:flush(host.state.now))
+    Harness.equal(memory.writes - writes, 1)
+    writer:close()
+end)

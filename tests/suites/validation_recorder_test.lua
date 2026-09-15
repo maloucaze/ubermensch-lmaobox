@@ -49,7 +49,7 @@ Harness.test("validation runtime records real decisions events Draw and marker",
 
     local output = all_output(memory)
     Harness.contains(output, '"type":"session_start"')
-    Harness.contains(output, '"recorder_version":"1.1.0"')
+    Harness.contains(output, '"recorder_version":"1.2.0"')
     Harness.contains(output, '"type":"event"')
     Harness.contains(output, '"name":"player_chargedeployed"')
     Harness.contains(output, '"type":"decision"')
@@ -64,6 +64,54 @@ Harness.test("validation runtime records real decisions events Draw and marker",
     Harness.falsy(string.find(output, "SteamID", 1, true))
     Harness.contains(output, '"type":"session_end"')
     Harness.falsy(string.find(output, "player_say", 1, true))
+end)
+
+Harness.test("verbose adapter diagnostics follow their fixed cadence", function()
+    local host = Fakes.validation_host()
+    local recorder = Recorder.new(host, {
+        detail_interval = 0.1,
+        flush_interval = 100,
+    })
+    local app = App.start(host, {
+        observer = recorder,
+        adapter_diagnostics = true,
+    })
+    Harness.truthy(app ~= nil)
+    Harness.truthy(recorder:wants_diagnostics())
+    host.state.callbacks.FrameStageNotify(4)
+    Harness.falsy(recorder:wants_diagnostics())
+    host.state.now = host.state.now + 0.099
+    Harness.falsy(recorder:wants_diagnostics())
+    host.state.now = host.state.now + 0.002
+    Harness.truthy(recorder:wants_diagnostics())
+    host.state.callbacks.Unload()
+end)
+
+Harness.test("selection without diagnostics forces the next raw sample", function()
+    local host, memory = Fakes.validation_host()
+    local recorder = Recorder.new(host, {
+        detail_interval = 100,
+        flush_interval = 100,
+        checkpoint_interval = 100,
+        heartbeat_interval = 100,
+    })
+    local app = App.start(host, {
+        observer = recorder,
+        adapter_diagnostics = true,
+    })
+    Harness.truthy(app ~= nil)
+    host.state.callbacks.FrameStageNotify(4)
+    host.state.now = 10.01
+    host.state.players[2].options.alive = false
+    host.state.callbacks.FrameStageNotify(4)
+    Harness.truthy(recorder.force_diagnostics)
+    host.state.now = 10.02
+    host.state.callbacks.FrameStageNotify(4)
+    Harness.falsy(recorder.force_diagnostics)
+    host.state.callbacks.Unload()
+
+    local output = all_output(memory)
+    Harness.contains(output, '"adapter_diagnostics_available":false')
 end)
 
 Harness.test("Draw appends evidence without flushing files", function()

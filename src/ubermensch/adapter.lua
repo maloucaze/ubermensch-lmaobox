@@ -9,6 +9,15 @@ local Weapons = require("ubermensch.weapons")
 local Adapter = {}
 Adapter.__index = Adapter
 
+local MENU_CLOSED_INPUT = {
+    menu_open = false,
+    mouse_x = -1,
+    mouse_y = -1,
+    pressed = false,
+    down = false,
+    released = false,
+}
+
 --- Reduces an arbitrary host value to a log-safe primitive description.
 -- This helper is used only when the validation runtime requests boundary
 -- diagnostics; ordinary product snapshots do not allocate these descriptions.
@@ -109,20 +118,27 @@ end
 -- @param candidates Ordered candidate array.
 -- @param by_key Candidate lookup by weapon identity.
 -- @param weapon Transient weapon entity.
--- @param source `loadout`, `active`, or `direct`.
+-- @param source `loadout` or `active`.
 -- @param owner_hint Player index that exposed the weapon, if any.
-local function add_weapon(candidates, by_key, weapon, source, owner_hint)
+-- @param known_index Already validated weapon index, if available.
+local function add_weapon(
+    candidates,
+    by_key,
+    weapon,
+    source,
+    owner_hint,
+    known_index
+)
     if weapon == nil then
         return
     end
-    local index = entity_index(weapon)
+    local index = known_index or entity_index(weapon)
     local key = index ~= nil and ("i:" .. tostring(index)) or tostring(weapon)
     local candidate = by_key[key]
     if candidate == nil then
         candidate = {
             weapon = weapon,
             weapon_index = index,
-            sources = {},
             owner_hint = owner_hint,
         }
         candidates[#candidates + 1] = candidate
@@ -130,20 +146,14 @@ local function add_weapon(candidates, by_key, weapon, source, owner_hint)
     elseif candidate.owner_hint == nil then
         candidate.owner_hint = owner_hint
     end
-    candidate.sources[source] = true
+    candidate["source_" .. source] = true
 end
 
 --- Returns discovery priority while keeping the loadout secondary authoritative.
--- @param sources Set of paths that exposed a deduplicated weapon.
+-- @param candidate Deduplicated loadout/active weapon observation.
 -- @return number Priority used independently for each valid weapon field.
-local function discovery_rank(sources)
-    if sources.loadout then
-        return 3
-    end
-    if sources.active then
-        return 2
-    end
-    return 1
+local function discovery_rank(candidate)
+    return candidate.source_loadout and 2 or 1
 end
 
 --- Creates a plain player row or reuses the row for a current user identity.
@@ -179,23 +189,31 @@ local function obtain_row(rows, by_userid, by_index, userid, index)
 end
 
 --- Reads current player lifecycle fields only from a non-dormant entity.
+-- Weapon handles are deliberately deferred until resource/current lifecycle
+-- facts establish that the player may be an alive Medic. This avoids two
+-- protected native calls for every definitively irrelevant player.
 -- @param player Transient CTFPlayer entity.
+-- @param diagnostics_enabled Whether to retain primitive boundary-read evidence.
 -- @return table Plain current-player observation.
-local function inspect_player(player)
+local function inspect_player(player, diagnostics_enabled)
     local observation = {
         entity = player,
         index = entity_index(player),
     }
     local valid_ok, valid = Safe.method(player, "IsValid")
-    observation.valid_read = valid_ok
-    observation.valid_value = valid_ok and boolean(valid) or nil
+    if diagnostics_enabled then
+        observation.valid_read = valid_ok
+        observation.valid_value = valid_ok and boolean(valid) or nil
+    end
     if valid_ok and valid ~= true then
         return observation
     end
     local dormant_ok, dormant = Safe.method(player, "IsDormant")
-    observation.dormant_read = dormant_ok
-    observation.dormant = dormant_ok and boolean(dormant) or nil
     observation.non_dormant = dormant_ok and dormant == false
+    if diagnostics_enabled then
+        observation.dormant_read = dormant_ok
+        observation.dormant = dormant_ok and boolean(dormant) or nil
+    end
     if not observation.non_dormant then
         return observation
     end
@@ -210,15 +228,26 @@ local function inspect_player(player)
     local alive_ok, alive = Safe.method(player, "IsAlive")
     observation.team = team_ok and integer(team) or nil
     observation.class = class_ok and integer(class) or nil
-    observation.team_read = team_ok
-    observation.class_read = class_ok
-    observation.alive_read = alive_ok
+    if diagnostics_enabled then
+        observation.team_read = team_ok
+        observation.class_read = class_ok
+        observation.alive_read = alive_ok
+    end
     if alive_ok then
         observation.alive = boolean(alive)
     end
+    return observation
+end
 
+--- Reads active and secondary weapon handles for one possible alive Medic.
+-- @param observation Mutable current-player observation.
+-- @param diagnostics_enabled Whether to retain boundary-read evidence.
+local function inspect_player_weapons(observation, diagnostics_enabled)
+    local player = observation.entity
     local active_ok, active = Safe.method(player, "GetPropEntity", "m_hActiveWeapon")
-    observation.active_read = active_ok
+    if diagnostics_enabled then
+        observation.active_read = active_ok
+    end
     if active_ok then
         observation.active_weapon = active
         observation.active_index = entity_index(active)
@@ -228,11 +257,38 @@ local function inspect_player(player)
         "GetEntityForLoadoutSlot",
         Constants.SECONDARY_SLOT
     )
-    observation.loadout_read = loadout_ok
+    if diagnostics_enabled then
+        observation.loadout_read = loadout_ok
+    end
     if loadout_ok then
         observation.loadout_weapon = loadout
+        observation.loadout_index = entity_index(loadout)
     end
-    return observation
+end
+
+--- Determines whether weapon reads can affect the current snapshot.
+-- Current lifecycle fields override the resource row independently. A player
+-- with unknown class/alive state remains probeable so boundary failures cannot
+-- hide a Medic; a player definitively known to be dead or non-Medic is skipped.
+-- @param observation Current player lifecycle observation.
+-- @param resource_row Associated validated resource row, if available.
+-- @return boolean Whether active/loadout weapon handles must be inspected.
+local function may_be_alive_medic(observation, resource_row)
+    if not observation.non_dormant then
+        return false
+    end
+    local class = observation.class
+    if class == nil and resource_row ~= nil then
+        class = resource_row.class
+    end
+    if class ~= nil and class ~= Constants.MEDIC_CLASS then
+        return false
+    end
+    local alive = observation.alive
+    if alive == nil and resource_row ~= nil then
+        alive = resource_row.alive
+    end
+    return alive ~= false
 end
 
 --- Reads an item family using the nested schema path and compatibility fallback.
@@ -397,7 +453,7 @@ local function inspect_weapon(candidate, player, local_index, diagnostics_enable
     )
     observation.deployed = deployment
     observation.equipped = equipped
-    observation.rank = discovery_rank(candidate.sources)
+    observation.rank = discovery_rank(candidate)
     return observation
 end
 
@@ -446,13 +502,33 @@ function Adapter.new(host, diagnostics_enabled)
     }, Adapter)
 end
 
+--- Reads an optional simulation/network revision for duplicate fallback checks.
+-- The client tick covers predicted local changes; the last-received server tick
+-- is a compatibility fallback. Unavailable or malformed values fail open so
+-- the controller captures every render-start callback rather than risking stale
+-- information.
+-- @return number|nil Valid integral network revision.
+function Adapter:network_revision()
+    local ok, value = Safe.library(self.host.globals, "TickCount")
+    if ok and integer(value) ~= nil then
+        return value
+    end
+    ok, value = Safe.library(self.host.clientstate, "GetDeltaTick")
+    return ok and integer(value) or nil
+end
+
 --- Captures one complete validated snapshot at the network-update boundary.
 -- Work is linear in available player slots and observed entities. All Entity
 -- references are confined to this call and only primitive rows are returned.
+-- @param diagnostics_override Optional per-capture validation-evidence switch.
 -- @return table Primitive context, roster, lifecycle, and Medi Gun observations.
-function Adapter:capture()
+function Adapter:capture(diagnostics_override)
     local host = self.host
-    local diagnostics = self.diagnostics_enabled and {
+    local collect_diagnostics = diagnostics_override
+    if collect_diagnostics == nil then
+        collect_diagnostics = self.diagnostics_enabled
+    end
+    local diagnostics = collect_diagnostics == true and {
         resource_tables = {},
         resource_rows = {},
         resource_disconnected_count = 0,
@@ -628,7 +704,7 @@ function Adapter:capture()
             end
         end
         local observation = player_entity ~= nil
-            and inspect_player(player_entity)
+            and inspect_player(player_entity, diagnostics ~= nil)
             or nil
         if observation ~= nil and observation.index ~= nil then
             observation.userid = player_userid(host, observation.index)
@@ -659,26 +735,48 @@ function Adapter:capture()
                 row.current_class = observation.class
                 row.current_alive = observation.alive
             end
+            local inspect_weapons = may_be_alive_medic(
+                observation,
+                resource_row
+            )
+            if diagnostics ~= nil then
+                observation.weapon_inspection = inspect_weapons
+            end
+            if inspect_weapons then
+                inspect_player_weapons(observation, diagnostics ~= nil)
+            end
             local loadout_medigun_ok, loadout_medigun = Safe.method(
                 observation.loadout_weapon,
                 "IsMedigun"
             )
             observation.loadout_is_medigun = loadout_medigun_ok
                 and loadout_medigun == true
-            observation.loadout_index = entity_index(observation.loadout_weapon)
             if loadout_medigun_ok and loadout_medigun == true then
                 add_weapon(
                     weapon_candidates,
                     weapons_by_key,
                     observation.loadout_weapon,
                     "loadout",
-                    observation.index
+                    observation.index,
+                    observation.loadout_index
                 )
             end
-            local active_medigun_ok, active_medigun = Safe.method(
-                observation.active_weapon,
-                "IsMedigun"
-            )
+            local same_weapon = observation.active_weapon ~= nil
+                and (observation.active_weapon == observation.loadout_weapon
+                    or (observation.active_index ~= nil
+                        and observation.active_index
+                            == observation.loadout_index))
+            local active_medigun_ok
+            local active_medigun
+            if same_weapon and loadout_medigun_ok then
+                active_medigun_ok = true
+                active_medigun = loadout_medigun
+            else
+                active_medigun_ok, active_medigun = Safe.method(
+                    observation.active_weapon,
+                    "IsMedigun"
+                )
+            end
             observation.active_is_medigun = active_medigun_ok
                 and active_medigun == true
             if active_medigun_ok and active_medigun == true then
@@ -687,7 +785,8 @@ function Adapter:capture()
                     weapons_by_key,
                     observation.active_weapon,
                     "active",
-                    observation.index
+                    observation.index,
+                    observation.active_index
                 )
             end
             if diagnostics ~= nil then
@@ -705,6 +804,7 @@ function Adapter:capture()
                     class = observation.class,
                     alive_read = observation.alive_read,
                     alive = observation.alive,
+                    weapon_inspection = observation.weapon_inspection,
                     active_read = observation.active_read,
                     active_index = observation.active_index,
                     active_is_medigun = observation.active_is_medigun,
@@ -725,29 +825,6 @@ function Adapter:capture()
         end
     end
 
-    local direct_ok, direct_weapons = Safe.library(
-        host.entities,
-        "FindByClass",
-        "CWeaponMedigun"
-    )
-    if direct_ok and type(direct_weapons) == "table" then
-        for i = 1, #direct_weapons do
-            add_weapon(
-                weapon_candidates,
-                weapons_by_key,
-                direct_weapons[i],
-                "direct",
-                nil
-            )
-        end
-    end
-    if diagnostics ~= nil then
-        diagnostics.direct_enumeration_call = direct_ok
-        diagnostics.direct_enumeration_count = type(direct_weapons) == "table"
-            and #direct_weapons
-            or nil
-    end
-
     for i = 1, #weapon_candidates do
         local candidate = weapon_candidates[i]
         local owner_ok, owner = Safe.method(
@@ -763,9 +840,8 @@ function Adapter:capture()
             owner_read = owner_ok,
             owner_index = owner_index,
             owner_hint = candidate.owner_hint,
-            source_loadout = candidate.sources.loadout == true,
-            source_active = candidate.sources.active == true,
-            source_direct = candidate.sources.direct == true,
+            source_loadout = candidate.source_loadout == true,
+            source_active = candidate.source_active == true,
         } or nil
         if player ~= nil then
             local canonical = true
@@ -949,6 +1025,9 @@ end
 function Adapter:input_sample()
     local mouse_left = integer(self.host.mouse_left) or Constants.MOUSE_LEFT
     local menu_ok, menu_open = Safe.library(self.host.gui, "IsMenuOpen")
+    if not menu_ok or menu_open ~= true then
+        return MENU_CLOSED_INPUT
+    end
     local mouse_ok, mouse = Safe.library(self.host.input, "GetMousePos")
     local pressed_ok, pressed = Safe.library(
         self.host.input,
@@ -966,7 +1045,7 @@ function Adapter:input_sample()
         mouse_left
     )
     return {
-        menu_open = menu_ok and menu_open == true,
+        menu_open = true,
         mouse_x = mouse_ok and type(mouse) == "table"
             and (mouse.x or mouse[1]) or -1,
         mouse_y = mouse_ok and type(mouse) == "table"

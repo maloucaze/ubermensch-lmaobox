@@ -38,22 +38,94 @@ local function approximate_comparison(model)
         or model.enemy_side.family_source == "retained"
 end
 
+--- Resolves the display tokens for one team line without allocating text.
+-- @param side Resolved display side.
+-- @return string Team label.
+-- @return string Family label.
+-- @return number|nil Rounded percentage.
+-- @return boolean Whether the percentage carries an approximation marker.
+local function side_tokens(side)
+    local charge = side.charge ~= nil
+        and Numbers.round_half_away(side.charge, 0)
+        or nil
+    return Constants.TEAM_NAME[side.team] or "?",
+        side.family or "UNKNOWN",
+        charge,
+        charge ~= nil and approximate(side.charge_source)
+end
+
+--- Formats already normalized team-line tokens.
+-- @param team Team label.
+-- @param family Family label.
+-- @param charge Rounded percentage or nil.
+-- @param is_approximate Whether to add `~`.
+-- @return string Team, charge, and family line.
+local function format_side_tokens(team, family, charge, is_approximate)
+    local charge_text = charge == nil and "?" or string.format("%.0f", charge)
+    if charge ~= nil and is_approximate then
+        charge_text = "~" .. charge_text
+    end
+    return string.format("%s %s%% (%s)", team, charge_text, family)
+end
+
 --- Formats one team line without exposing player identity.
 -- @param side Resolved display side.
 -- @return string Team, charge, and family line.
 function Formatting.side_line(side)
-    local team = Constants.TEAM_NAME[side.team] or "?"
-    local family = side.family or "UNKNOWN"
-    local charge
-    if side.charge == nil then
-        charge = "?"
-    else
-        charge = string.format("%.0f", Numbers.round_half_away(side.charge, 0))
-        if approximate(side.charge_source) then
-            charge = "~" .. charge
-        end
+    return format_side_tokens(side_tokens(side))
+end
+
+--- Updates one cached team line only when a displayed token changes.
+-- @param prepared Reusable formatting result.
+-- @param line_index One or two.
+-- @param side Resolved display side.
+local function prepare_side(prepared, line_index, side)
+    local team, family, charge, is_approximate = side_tokens(side)
+    local cache = prepared.cache[line_index]
+    if cache.team ~= team or cache.family ~= family
+        or cache.charge ~= charge
+        or cache.is_approximate ~= is_approximate
+    then
+        prepared.lines[line_index] = format_side_tokens(
+            team,
+            family,
+            charge,
+            is_approximate
+        )
+        cache.team = team
+        cache.family = family
+        cache.charge = charge
+        cache.is_approximate = is_approximate
     end
-    return string.format("%s %s%% (%s)", team, charge, family)
+    prepared.colors[line_index] = Formatting.side_color(side)
+end
+
+--- Updates the cached comparison line only when a displayed token changes.
+-- @param prepared Reusable formatting result.
+-- @param model Resolved HUD model.
+local function prepare_comparison(prepared, model)
+    local comparison = model.comparison
+    local status = comparison ~= nil and comparison.status or nil
+    local charge = comparison ~= nil
+        and Numbers.round_half_away(comparison.charge_difference, 0)
+        or nil
+    local time = comparison ~= nil and comparison.time_difference ~= nil
+        and Numbers.round_half_away(comparison.time_difference, 1)
+        or nil
+    local is_approximate = comparison ~= nil
+        and approximate_comparison(model)
+        or false
+    local cache = prepared.cache[3]
+    if cache.status ~= status or cache.charge ~= charge
+        or cache.time ~= time or cache.is_approximate ~= is_approximate
+    then
+        prepared.lines[3] = Formatting.comparison_line(model)
+        cache.status = status
+        cache.charge = charge
+        cache.time = time
+        cache.is_approximate = is_approximate
+    end
+    prepared.colors[3] = Formatting.comparison_color(comparison)
 end
 
 --- Resolves a team-line color from deployment and readiness precedence.
@@ -109,23 +181,24 @@ function Formatting.comparison_color(comparison)
     return Constants.COLORS.disadvantage
 end
 
---- Produces all immutable per-frame text and color roles from a HUD model.
+--- Produces text and color roles, reusing an optional prior result safely.
+-- Cached invalidation uses only display-rounded values, field-source markers,
+-- family/team labels, deployment/readiness color inputs, and warning state.
+-- Raw values still drive comparison and selection before this presentation step.
 -- @param model Resolved HUD model.
+-- @param prepared Optional result from the preceding capture.
 -- @return table Three lines, three colors, and warning-border flag.
-function Formatting.prepare(model)
-    return {
-        lines = {
-            Formatting.side_line(model.local_side),
-            Formatting.side_line(model.enemy_side),
-            Formatting.comparison_line(model),
-        },
-        colors = {
-            Formatting.side_color(model.local_side),
-            Formatting.side_color(model.enemy_side),
-            Formatting.comparison_color(model.comparison),
-        },
-        warning = model.warning,
+function Formatting.prepare(model, prepared)
+    prepared = prepared or {
+        lines = {},
+        colors = {},
+        cache = { {}, {}, {} },
     }
+    prepare_side(prepared, 1, model.local_side)
+    prepare_side(prepared, 2, model.enemy_side)
+    prepare_comparison(prepared, model)
+    prepared.warning = model.warning
+    return prepared
 end
 
 return Formatting

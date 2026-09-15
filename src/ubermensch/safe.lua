@@ -2,6 +2,13 @@
 -- @module ubermensch.safe
 
 local Safe = {}
+
+-- Reusing one pcall target avoids allocating a closure for every protected
+-- member read in the capture and Draw hot paths.
+local function read_member(object, name)
+    return object[name]
+end
+
 --- Reads a member without assuming native proxy objects are ordinary tables.
 -- @param object Host object or library.
 -- @param name Member name.
@@ -10,9 +17,7 @@ function Safe.member(object, name)
     if object == nil then
         return nil
     end
-    local ok, value = pcall(function()
-        return object[name]
-    end)
+    local ok, value = pcall(read_member, object, name)
     if ok then
         return value
     end

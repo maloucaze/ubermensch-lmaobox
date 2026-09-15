@@ -12,6 +12,22 @@ local Tracking = require("ubermensch.tracking")
 local Controller = {}
 Controller.__index = Controller
 
+--- Disables a failed validation observer without affecting product callbacks.
+-- @param self Controller instance.
+-- @param method Observer method that failed.
+-- @param failure Failure value.
+local function disable_observer(self, method, failure)
+    local observer = self.observer
+    local close = observer ~= nil and observer.close or nil
+    if type(close) == "function" then
+        pcall(close, observer, "observer_fault")
+    end
+    self.observer = nil
+    if self.observer_error ~= nil then
+        self.observer_error(method, failure)
+    end
+end
+
 --- Calls an optional validation observer without allowing diagnostics to break
 -- the product callback path. An observer is disabled permanently after its
 -- first fault because partial diagnostic output is safer than altered HUD state.
@@ -29,15 +45,37 @@ local function observe(self, method, ...)
     end
     local ok, failure = pcall(action, observer, ...)
     if not ok then
-        local close = observer.close
-        if type(close) == "function" then
-            pcall(close, observer, "observer_fault")
-        end
-        self.observer = nil
-        if self.observer_error ~= nil then
-            self.observer_error(method, failure)
-        end
+        disable_observer(self, method, failure)
     end
+end
+
+--- Asks the validation observer whether this capture needs verbose boundary data.
+-- Product adapters never collect it. A validation observer without the optional
+-- scheduling method retains the original every-capture diagnostic behavior.
+-- @param self Controller instance.
+-- @param capture_source `preferred` or `fallback`.
+-- @param stage Normalized frame stage.
+-- @return boolean Whether adapter diagnostics should be collected.
+local function diagnostics_requested(self, capture_source, stage)
+    if not self.adapter.diagnostics_enabled then
+        return false
+    end
+    local observer = self.observer
+    local action = observer ~= nil and observer.wants_diagnostics or nil
+    if type(action) ~= "function" then
+        return true
+    end
+    local ok, requested = pcall(
+        action,
+        observer,
+        capture_source,
+        stage
+    )
+    if not ok then
+        disable_observer(self, "wants_diagnostics", requested)
+        return false
+    end
+    return requested == true
 end
 
 --- Normalizes a callback stage without trusting the host value's Lua type.
@@ -75,9 +113,13 @@ function Controller.new(collaborators)
         observer = collaborators.observer,
         observer_error = collaborators.observer_error,
         preferred_capture_pending_render = false,
+        last_network_revision = nil,
+        has_network_revision = false,
         tracker = Tracking.new(),
         prior_selection = {},
         latest_snapshot = nil,
+        prepared_cache = nil,
+        bounds = {},
         latest_prepared = nil,
         latest_decision_sequence = 0,
         unloaded = false,
@@ -89,7 +131,9 @@ end
 -- @param capture_source `preferred` or `fallback` frame-stage route.
 -- @param stage Normalized numeric frame stage.
 local function capture_and_prepare(self, capture_source, stage)
-    local snapshot = self.adapter:capture()
+    local snapshot = self.adapter:capture(
+        diagnostics_requested(self, capture_source, stage)
+    )
     if self.latest_snapshot ~= nil
         and (snapshot.map ~= self.latest_snapshot.map
             or (snapshot.local_team ~= nil
@@ -104,7 +148,12 @@ local function capture_and_prepare(self, capture_source, stage)
     local tracking = Tracking.reconcile(self.tracker, snapshot)
     local model = State.resolve(tracking, self.prior_selection)
     self.latest_snapshot = snapshot
-    self.latest_prepared = model ~= nil and Formatting.prepare(model) or nil
+    if model ~= nil then
+        self.prepared_cache = Formatting.prepare(model, self.prepared_cache)
+        self.latest_prepared = self.prepared_cache
+    else
+        self.latest_prepared = nil
+    end
     self.latest_decision_sequence = self.latest_decision_sequence + 1
     if self.observer ~= nil then
         observe(self, "on_capture", {
@@ -121,6 +170,23 @@ local function capture_and_prepare(self, capture_source, stage)
     end
 end
 
+--- Determines whether a frame-stage capture has new work to reconcile.
+-- A changed last-received tick or a queued event always captures. If the host
+-- cannot provide a valid revision, the optimization fails open and captures.
+-- @param self Controller instance.
+-- @return boolean Whether a fallback capture is required.
+local function capture_due(self)
+    local revision = self.adapter:network_revision()
+    if revision == nil then
+        return true
+    end
+    local changed = not self.has_network_revision
+        or revision ~= self.last_network_revision
+    self.has_network_revision = true
+    self.last_network_revision = revision
+    return changed or #self.tracker.events > 0
+end
+
 --- Captures at network-update end, with a render-start compatibility fallback.
 -- A preferred capture suppresses the immediately following fallback. When the
 -- host omits stage 4, stage 5 is the first post-network opportunity and still
@@ -134,13 +200,19 @@ function Controller:on_frame_stage(stage)
     end
     local normalized_stage = normalize_frame_stage(stage)
     if normalized_stage == self.frame_net_update_end then
-        capture_and_prepare(self, "preferred", normalized_stage)
         self.preferred_capture_pending_render = true
+        if not capture_due(self) then
+            return false, nil
+        end
+        capture_and_prepare(self, "preferred", normalized_stage)
         return true, "preferred"
     end
     if normalized_stage == self.frame_render_start then
         if self.preferred_capture_pending_render then
             self.preferred_capture_pending_render = false
+            return false, nil
+        end
+        if not capture_due(self) then
             return false, nil
         end
         capture_and_prepare(self, "fallback", normalized_stage)
@@ -207,15 +279,15 @@ local function resolve_bounds(self)
         width,
         height
     )
-    return {
-        x = x,
-        y = y,
-        width = width,
-        height = height,
-        line_height = line_height,
-        screen_width = screen_width,
-        screen_height = screen_height,
-    }, nil
+    local bounds = self.bounds
+    bounds.x = x
+    bounds.y = y
+    bounds.width = width
+    bounds.height = height
+    bounds.line_height = line_height
+    bounds.screen_width = screen_width
+    bounds.screen_height = screen_height
+    return bounds, nil
 end
 
 --- Handles menu-only dragging and persists only a completed move.
@@ -223,6 +295,9 @@ end
 -- @param bounds Current widget and screen bounds, mutated after movement.
 local function handle_drag(self, bounds)
     local input = self.adapter:input_sample()
+    if not self.position.dragging and not input.menu_open then
+        return
+    end
     local ended = Position.update_drag(
         self.position,
         input,
@@ -287,7 +362,10 @@ function Controller:on_unload()
     Tracking.clear(self.tracker)
     self.latest_snapshot = nil
     self.latest_prepared = nil
+    self.prepared_cache = nil
     self.preferred_capture_pending_render = false
+    self.last_network_revision = nil
+    self.has_network_revision = false
     self.unloaded = true
     observe(self, "on_unload", self.latest_decision_sequence)
 end

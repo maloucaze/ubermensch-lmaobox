@@ -41,7 +41,7 @@ function Renderer.new(host)
     return setmetatable({
         host = host,
         font = font,
-        cache_key = nil,
+        cache_lines = {},
         cache_width = nil,
         cache_height = nil,
         cache_line_height = nil,
@@ -56,8 +56,10 @@ end
 -- @return number Widget height.
 -- @return number Common line height.
 function Renderer:measure(lines)
-    local key = lines[1] .. "\n" .. lines[2] .. "\n" .. lines[3]
-    if key == self.cache_key then
+    local cached = self.cache_lines
+    if lines[1] == cached[1] and lines[2] == cached[2]
+        and lines[3] == cached[3]
+    then
         return self.cache_width, self.cache_height, self.cache_line_height
     end
 
@@ -84,7 +86,9 @@ function Renderer:measure(lines)
     end
 
     local layout = Constants.LAYOUT
-    self.cache_key = key
+    cached[1] = lines[1]
+    cached[2] = lines[2]
+    cached[3] = lines[3]
     self.cache_width = maximum_width + layout.horizontal_padding * 2
     self.cache_height = maximum_height * 3
         + layout.vertical_padding * 2

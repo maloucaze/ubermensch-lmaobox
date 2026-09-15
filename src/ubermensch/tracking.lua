@@ -8,6 +8,34 @@ local Weapons = require("ubermensch.weapons")
 
 local Tracking = {}
 
+--- Clears an internal bounded dictionary without replacing its storage.
+-- @param values Mutable table used only as tracking scratch state.
+local function clear_table(values)
+    for key in pairs(values) do
+        values[key] = nil
+    end
+end
+
+--- Replaces the trustworthy charge fact without anchoring from an estimate.
+-- Reusing the small anchor table reduces capture-frequency allocation; every
+-- field is still written only from a new current, resource, or event fact.
+-- @param record Retained Medic record.
+-- @param charge Trustworthy percentage.
+-- @param time Trustworthy observation time.
+-- @param deployed Deployment state associated with the charge.
+-- @param source `current`, `resource`, or `event`.
+local function set_anchor(record, charge, time, deployed, source)
+    local anchor = record.anchor
+    if anchor == nil then
+        anchor = {}
+        record.anchor = anchor
+    end
+    anchor.charge = charge
+    anchor.time = time
+    anchor.deployed = deployed
+    anchor.source = source
+end
+
 --- Creates a fresh retained Medic record containing no host objects.
 -- @param key Stable user-ID key or temporary entity-index key.
 -- @param now Monotonic creation time.
@@ -63,6 +91,7 @@ function Tracking.new()
         records = {},
         index_to_key = {},
         events = {},
+        scratch_present = {},
         phase_history = {},
         phase = nil,
         map = nil,
@@ -144,6 +173,7 @@ local function reset_match(tracker)
     tracker.records = {}
     tracker.index_to_key = {}
     tracker.events = {}
+    tracker.scratch_present = {}
     tracker.phase_history = {}
     tracker.phase = nil
     tracker.local_userid = nil
@@ -192,32 +222,17 @@ local function apply_event(tracker, event, now)
         clear_gameplay(record, false)
     elseif name == "player_spawn" then
         record.alive = true
-        record.anchor = {
-            charge = 0,
-            time = event.time or now,
-            deployed = false,
-            source = "event",
-        }
+        set_anchor(record, 0, event.time or now, false, "event")
         record.deployed = false
         record.deployment_source = "event"
         record.deployment_deadline = nil
     elseif name == "post_inventory_application" then
-        record.anchor = {
-            charge = 0,
-            time = event.time or now,
-            deployed = false,
-            source = "event",
-        }
+        set_anchor(record, 0, event.time or now, false, "event")
         record.deployed = false
         record.deployment_source = "event"
         record.deployment_deadline = nil
     elseif name == "player_chargedeployed" then
-        record.anchor = {
-            charge = 100,
-            time = event.time or now,
-            deployed = true,
-            source = "event",
-        }
+        set_anchor(record, 100, event.time or now, true, "event")
         record.deployed = true
         record.deployment_source = "event"
         record.deployment_deadline = (event.time or now)
@@ -256,7 +271,8 @@ end
 -- @param now Current time.
 -- @return table Keys proven present by the complete roster.
 local function apply_resource_lifecycle(tracker, players, now)
-    local present = {}
+    local present = tracker.scratch_present
+    clear_table(present)
     for i = 1, #players do
         local player = players[i]
         if player.resource_present then
@@ -391,12 +407,7 @@ local function apply_charge_sources(tracker, players, now)
                 if deployed == nil then
                     deployed = record.deployed == true
                 end
-                record.anchor = {
-                    charge = charge,
-                    time = now,
-                    deployed = deployed,
-                    source = source,
-                }
+                set_anchor(record, charge, now, deployed, source)
                 if deployed then
                     if source == "current"
                         and record.frame_deployed == true
@@ -422,7 +433,7 @@ local function prune_authoritative(tracker, present)
             tracker.records[key] = nil
         end
     end
-    tracker.index_to_key = {}
+    clear_table(tracker.index_to_key)
     for key, record in pairs(tracker.records) do
         if record.entity_index ~= nil then
             tracker.index_to_key[record.entity_index] = key
@@ -454,7 +465,7 @@ local function prune_fallback_bound(tracker)
         tracker.records[key] = nil
         excess = excess - 1
     end
-    tracker.index_to_key = {}
+    clear_table(tracker.index_to_key)
     for key, record in pairs(tracker.records) do
         if record.entity_index ~= nil then
             tracker.index_to_key[record.entity_index] = key
@@ -555,9 +566,9 @@ function Tracking.reconcile(tracker, snapshot)
     clear_frame_fields(tracker)
 
     local queued = tracker.events
-    tracker.events = {}
     for i = 1, #queued do
         apply_event(tracker, queued[i], now)
+        queued[i] = nil
     end
 
     local present = apply_resource_lifecycle(tracker, snapshot.players, now)

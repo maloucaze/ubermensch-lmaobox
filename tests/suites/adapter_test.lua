@@ -73,7 +73,7 @@ Harness.test("qualified local and nonlocal charge paths are exclusive", function
     })
 end)
 
-Harness.test("loadout discovery works with empty direct enumeration", function()
+Harness.test("loadout discovery does not require or query direct enumeration", function()
     local local_player, enemy_player = medic_pair()
     local host = Fakes.host({
         players = { local_player, enemy_player },
@@ -85,6 +85,7 @@ Harness.test("loadout discovery works with empty direct enumeration", function()
     Harness.equal(snapshot.observed_weapon_count, 2)
     Harness.equal(row_by_userid(snapshot, 10).current_family, "STOCK")
     Harness.equal(row_by_userid(snapshot, 20).current_family, "KRITZ")
+    Harness.same_table(host.state.find_by_class_calls, { "CTFPlayer" })
 end)
 
 Harness.test("local Medic omitted from player enumeration is still inspected", function()
@@ -132,7 +133,7 @@ Harness.test("local Medic omitted from player enumeration is still inspected", f
     end
 end)
 
-Harness.test("active loadout and direct observations deduplicate", function()
+Harness.test("identical active and loadout observations deduplicate", function()
     local local_player, enemy_player, local_weapon, enemy_weapon = medic_pair()
     local host = Fakes.host({
         players = { local_player, enemy_player },
@@ -144,25 +145,130 @@ Harness.test("active loadout and direct observations deduplicate", function()
     Harness.equal(snapshot.observed_weapon_count, 2)
     Harness.equal(row_by_userid(snapshot, 10).current_charge, 75)
     Harness.equal(row_by_userid(snapshot, 20).current_charge, 50)
+    Harness.equal(local_weapon.options.medigun_reads, 1)
+    Harness.equal(enemy_weapon.options.medigun_reads, 1)
+    Harness.same_table(host.state.find_by_class_calls, { "CTFPlayer" })
 end)
 
-Harness.test("distinct stale direct weapon cannot override the secondary slot", function()
-    local local_player, _, local_weapon = medic_pair()
-    local stale_options = {
-        index = 999, item = 35, local_charge = 0.99,
-        deployed = true, owner = local_player,
-    }
+Harness.test("known non-Medics skip weapon handles", function()
+    local stale_options = { index = 999, item = 35, nonlocal_charge = 0.99 }
     local stale = Fakes.weapon(stale_options)
+    local player = Fakes.player({
+        index = 1,
+        team = 2,
+        class = 1,
+        alive = true,
+        loadout_weapon = stale,
+        active_weapon = stale,
+    })
+    stale_options.owner = player
     local host = Fakes.host({
-        players = { local_player },
-        direct_weapons = { local_weapon, stale },
-        local_player = local_player,
+        players = { player },
+        local_player = player,
         userids = { [1] = 10 },
+        resource = Fakes.resource({
+            [1] = {
+                connected = true,
+                valid = true,
+                alive = true,
+                team = 2,
+                userid = 10,
+                class = 1,
+                charge = 0,
+            },
+        }),
     })
     local snapshot = Adapter.new(host):capture()
-    Harness.equal(snapshot.observed_weapon_count, 2)
+    Harness.equal(snapshot.observed_weapon_count, 0)
+    Harness.equal(player.options.active_reads or 0, 0)
+    Harness.equal(#(player.options.loadout_slots or {}), 0)
+    Harness.equal(stale.options.medigun_reads or 0, 0)
+end)
+
+Harness.test("known dead Medics skip weapon handles", function()
+    local weapon_options = { index = 101, item = 29, nonlocal_charge = 0.50 }
+    local weapon = Fakes.weapon(weapon_options)
+    local player = Fakes.player({
+        index = 1,
+        team = 2,
+        class = 5,
+        alive = false,
+        loadout_weapon = weapon,
+        active_weapon = weapon,
+    })
+    weapon_options.owner = player
+    local host = Fakes.host({
+        players = { player },
+        userids = { [1] = 10 },
+        resource = Fakes.resource({
+            [1] = {
+                connected = true,
+                valid = true,
+                alive = false,
+                team = 2,
+                userid = 10,
+                class = 5,
+                charge = 50,
+            },
+        }),
+    })
+    local snapshot = Adapter.new(host):capture()
+    Harness.equal(snapshot.observed_weapon_count, 0)
+    Harness.equal(player.options.active_reads or 0, 0)
+    Harness.equal(#(player.options.loadout_slots or {}), 0)
+end)
+
+Harness.test("unknown lifecycle still probes a possible Medic", function()
+    local weapon_options = {
+        index = 101,
+        item = 29,
+        nonlocal_charge = 0.40,
+        deployed = false,
+    }
+    local weapon = Fakes.weapon(weapon_options)
+    local player = Fakes.player({
+        index = 1,
+        team = 2,
+        class_error = true,
+        alive = true,
+        loadout_weapon = weapon,
+    })
+    weapon_options.owner = player
+    local host = Fakes.host({
+        players = { player },
+        userids = { [1] = 10 },
+        resource = Fakes.resource({}, { m_iPlayerClass = true }),
+    })
+    local snapshot = Adapter.new(host):capture()
+    Harness.equal(snapshot.observed_weapon_count, 1)
     Harness.equal(row_by_userid(snapshot, 10).current_family, "STOCK")
-    Harness.equal(row_by_userid(snapshot, 10).current_charge, 75)
+    Harness.equal(#player.options.loadout_slots, 1)
+end)
+
+Harness.test("unknown alive state still probes a current Medic", function()
+    local weapon_options = {
+        index = 101,
+        item = 35,
+        nonlocal_charge = 0.40,
+        deployed = false,
+    }
+    local weapon = Fakes.weapon(weapon_options)
+    local player = Fakes.player({
+        index = 1,
+        team = 2,
+        class = 5,
+        alive_error = true,
+        loadout_weapon = weapon,
+    })
+    weapon_options.owner = player
+    local host = Fakes.host({
+        players = { player },
+        userids = { [1] = 10 },
+        resource = Fakes.resource({}, { m_bAlive = true }),
+    })
+    local snapshot = Adapter.new(host):capture()
+    Harness.equal(snapshot.observed_weapon_count, 1)
+    Harness.equal(row_by_userid(snapshot, 10).current_family, "KRITZ")
 end)
 
 Harness.test("active handle overrides contradictory holster without dropping fields", function()
@@ -449,8 +555,29 @@ end)
 
 Harness.test("drag input uses the documented left mouse code", function()
     local host = Fakes.host({})
+    host.state.menu_open = true
     Adapter.new(host):input_sample()
     Harness.equal(host.state.button, 107)
+end)
+
+Harness.test("closed menu skips all mouse and button queries", function()
+    local host = Fakes.host({})
+    local input = Adapter.new(host):input_sample()
+    Harness.falsy(input.menu_open)
+    Harness.same_table(host.state.input_calls, {})
+end)
+
+Harness.test("client tick is the preferred duplicate-capture revision", function()
+    local host = Fakes.host({ delta_tick = 200 })
+    host.globals.TickCount = function() return 100 end
+    Harness.equal(Adapter.new(host):network_revision(), 100)
+end)
+
+Harness.test("last received tick is the duplicate-capture revision fallback", function()
+    local host = Fakes.host({ delta_tick = 200 })
+    Harness.equal(Adapter.new(host):network_revision(), 200)
+    host.state.delta_tick = "malformed"
+    Harness.is_nil(Adapter.new(host):network_revision())
 end)
 
 Harness.test("malformed entity does not block another readable entity", function()
@@ -474,8 +601,8 @@ Harness.test("validation diagnostics expose independent boundary evidence", func
     Harness.equal(snapshot.diagnostics.resource_malformed_connected_count, 0)
     Harness.equal(#snapshot.diagnostics.resource_rows, 3)
     Harness.equal(snapshot.diagnostics.player_enumeration_count, 3)
-    Harness.equal(snapshot.diagnostics.direct_enumeration_count, 0)
     Harness.equal(#snapshot.diagnostics.weapons, 2)
+    Harness.falsy(snapshot.diagnostics.current_players[1].weapon_inspection)
     Harness.equal(snapshot.diagnostics.weapons[1].reads.charge_status, "accepted")
     Harness.equal(
         snapshot.diagnostics.weapons[1].reads.deployment_status,

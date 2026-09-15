@@ -1,4 +1,6 @@
 local Harness = require("support.harness")
+local Adapter = require("ubermensch.adapter")
+local Constants = require("ubermensch.constants")
 local Fakes = require("support.fakes")
 
 local function read_file(path)
@@ -12,11 +14,80 @@ Harness.test("hot-path modules do not sort candidates or acquire in Draw", funct
     local selection = read_file("src/ubermensch/selection.lua")
     local tracking = read_file("src/ubermensch/tracking.lua")
     local controller = read_file("src/ubermensch/controller.lua")
+    local adapter = read_file("src/ubermensch/adapter.lua")
+    local safe = read_file("src/ubermensch/safe.lua")
     Harness.falsy(string.find(selection, "table.sort", 1, true))
     Harness.falsy(string.find(tracking, "table.sort", 1, true))
     Harness.falsy(string.find(controller, "FindByClass", 1, true))
     Harness.falsy(string.find(controller, "GetPlayerResources", 1, true))
     Harness.falsy(string.find(controller, "io.open", 1, true))
+    Harness.falsy(string.find(adapter, '"CWeaponMedigun"', 1, true))
+    Harness.falsy(string.find(safe, "pcall(function", 1, true))
+end)
+
+Harness.test("full roster probes weapon handles only for possible Medics", function()
+    local players = {}
+    local rows = {}
+    local userids = {}
+    local weapons = {}
+    for index = 1, Constants.MAX_PLAYERS do
+        local is_medic = index == 2 or index == 3
+        local weapon_options
+        local weapon
+        if is_medic then
+            weapon_options = {
+                index = 100 + index,
+                item = index == 2 and 29 or 35,
+                nonlocal_charge = index == 2 and 0.65 or 0.55,
+                deployed = false,
+            }
+            weapon = Fakes.weapon(weapon_options)
+            weapons[#weapons + 1] = weapon
+        end
+        local player = Fakes.player({
+            index = index,
+            team = index % 2 == 0 and Constants.TEAM.RED
+                or Constants.TEAM.BLU,
+            class = is_medic and Constants.MEDIC_CLASS or 1,
+            alive = true,
+            loadout_weapon = weapon,
+            active_weapon = weapon,
+        })
+        if weapon_options ~= nil then
+            weapon_options.owner = player
+        end
+        players[index] = player
+        userids[index] = 1000 + index
+        rows[index] = {
+            connected = true,
+            valid = true,
+            alive = true,
+            team = player.options.team,
+            userid = userids[index],
+            class = player.options.class,
+            charge = is_medic and 50 or 0,
+        }
+    end
+    local host = Fakes.host({
+        players = players,
+        local_player = players[1],
+        userids = userids,
+        resource = Fakes.resource(rows),
+    })
+    local snapshot = Adapter.new(host):capture()
+    local active_reads = 0
+    local loadout_reads = 0
+    for index = 1, #players do
+        active_reads = active_reads + (players[index].options.active_reads or 0)
+        loadout_reads = loadout_reads
+            + #(players[index].options.loadout_slots or {})
+    end
+    Harness.equal(snapshot.observed_weapon_count, 2)
+    Harness.equal(active_reads, 2)
+    Harness.equal(loadout_reads, 2)
+    Harness.equal(weapons[1].options.medigun_reads, 1)
+    Harness.equal(weapons[2].options.medigun_reads, 1)
+    Harness.same_table(host.state.find_by_class_calls, { "CTFPlayer" })
 end)
 
 Harness.test("generated bundle is self-contained under fake globals", function()

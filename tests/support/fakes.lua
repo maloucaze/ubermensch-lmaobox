@@ -20,6 +20,7 @@ function Fakes.weapon(options)
         return options.dormant == true
     end
     function weapon:IsMedigun()
+        options.medigun_reads = (options.medigun_reads or 0) + 1
         return options.is_medigun ~= false
     end
     function weapon:GetPropEntity(property)
@@ -88,6 +89,7 @@ function Fakes.player(options)
     end
     function player:GetPropEntity(property)
         if property == "m_hActiveWeapon" then
+            options.active_reads = (options.active_reads or 0) + 1
             maybe_error(options, "active")
             return options.active_weapon
         end
@@ -166,6 +168,7 @@ function Fakes.memory_io()
         opens = {},
         closes = 0,
         flushes = 0,
+        writes = 0,
     }
     local api = {}
     function api.open(path, mode)
@@ -186,6 +189,7 @@ function Fakes.memory_io()
         state.files[path] = ""
         local handle = {}
         function handle:write(content)
+            state.writes = state.writes + 1
             state.files[path] = state.files[path] .. content
             return true
         end
@@ -230,6 +234,9 @@ function Fakes.host(options)
         key_pressed = {},
         font_creations = 0,
         host_unloading = false,
+        delta_tick = options.delta_tick,
+        find_by_class_calls = {},
+        input_calls = {},
     }
     local host = {}
 
@@ -253,6 +260,7 @@ function Fakes.host(options)
         end,
         FindByClass = function(class)
             state.acquisition_calls = state.acquisition_calls + 1
+            state.find_by_class_calls[#state.find_by_class_calls + 1] = class
             if class == "CTFPlayer" then
                 return state.players
             end
@@ -265,6 +273,15 @@ function Fakes.host(options)
             return userid ~= nil and { UserID = userid } or nil
         end,
     }
+    if options.delta_tick ~= nil then
+        host.clientstate = {
+            GetDeltaTick = function()
+                state.network_revision_calls =
+                    (state.network_revision_calls or 0) + 1
+                return state.delta_tick
+            end,
+        }
+    end
     host.engine = {
         GetMapName = function() return state.map end,
         Con_IsVisible = function() return state.console end,
@@ -302,16 +319,28 @@ function Fakes.host(options)
     }
     host.gui = { IsMenuOpen = function() return state.menu_open end }
     host.input = {
-        GetMousePos = function() return state.mouse end,
+        GetMousePos = function()
+            state.input_calls.mouse = (state.input_calls.mouse or 0) + 1
+            return state.mouse
+        end,
         IsButtonPressed = function(button)
+            state.input_calls.pressed = (state.input_calls.pressed or 0) + 1
             state.button = button
             if button == 107 then
                 return state.pressed
             end
             return state.key_pressed[button] == true
         end,
-        IsButtonDown = function(button) state.button = button return state.down end,
-        IsButtonReleased = function(button) state.button = button return state.released end,
+        IsButtonDown = function(button)
+            state.input_calls.down = (state.input_calls.down or 0) + 1
+            state.button = button
+            return state.down
+        end,
+        IsButtonReleased = function(button)
+            state.input_calls.released = (state.input_calls.released or 0) + 1
+            state.button = button
+            return state.released
+        end,
     }
     host.callbacks = {
         Register = function(name, identifier, callback)

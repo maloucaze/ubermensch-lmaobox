@@ -96,6 +96,7 @@ foreach ($moduleDescriptor in $moduleDescriptors) {
 $hostLines = @(
     '    entities = entities,',
     '    client = client,',
+    '    clientstate = clientstate,',
     '    globals = globals,',
     '    engine = engine,',
     '    gamerules = gamerules,',

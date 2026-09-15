@@ -113,6 +113,85 @@ Harness.test("render-start captures only when network-update end was absent", fu
     Harness.equal(controller.tracker.generation, generation + 1)
 end)
 
+Harness.test("render-start suppresses duplicate work within one received tick", function()
+    local controller, host = setup()
+    host.state.delta_tick = 100
+    host.clientstate = {
+        GetDeltaTick = function() return host.state.delta_tick end,
+    }
+
+    local captured, source = controller:on_frame_stage(
+        Constants.FRAME_RENDER_START
+    )
+    Harness.truthy(captured)
+    Harness.equal(source, "fallback")
+    local generation = controller.tracker.generation
+
+    captured, source = controller:on_frame_stage(Constants.FRAME_RENDER_START)
+    Harness.falsy(captured)
+    Harness.is_nil(source)
+    Harness.equal(controller.tracker.generation, generation)
+
+    host.state.delta_tick = 101
+    captured, source = controller:on_frame_stage(Constants.FRAME_RENDER_START)
+    Harness.truthy(captured)
+    Harness.equal(source, "fallback")
+    Harness.equal(controller.tracker.generation, generation + 1)
+end)
+
+Harness.test("network-update end suppresses duplicate work within one client tick", function()
+    local controller, host = setup()
+    host.state.delta_tick = 100
+    host.globals.TickCount = function()
+        return host.state.delta_tick
+    end
+
+    local captured, source = controller:on_frame_stage(
+        Constants.FRAME_NET_UPDATE_END
+    )
+    Harness.truthy(captured)
+    Harness.equal(source, "preferred")
+    local generation = controller.tracker.generation
+
+    captured, source = controller:on_frame_stage(
+        Constants.FRAME_NET_UPDATE_END
+    )
+    Harness.falsy(captured)
+    Harness.is_nil(source)
+    Harness.equal(controller.tracker.generation, generation)
+
+    host.state.delta_tick = 101
+    captured, source = controller:on_frame_stage(
+        Constants.FRAME_NET_UPDATE_END
+    )
+    Harness.truthy(captured)
+    Harness.equal(source, "preferred")
+    Harness.equal(controller.tracker.generation, generation + 1)
+end)
+
+Harness.test("queued event forces fallback reconciliation in the same tick", function()
+    local controller, host = setup()
+    host.state.delta_tick = 100
+    host.clientstate = {
+        GetDeltaTick = function() return host.state.delta_tick end,
+    }
+    Harness.truthy(controller:on_frame_stage(Constants.FRAME_RENDER_START))
+    local generation = controller.tracker.generation
+    controller:on_event(Fakes.event("player_chargedeployed", { userid = 30 }))
+    Harness.truthy(controller:on_frame_stage(Constants.FRAME_RENDER_START))
+    Harness.equal(controller.tracker.generation, generation + 1)
+    Harness.equal(#controller.tracker.events, 0)
+end)
+
+Harness.test("unavailable network revision fails open at render start", function()
+    local controller, host = setup()
+    host.clientstate = { GetDeltaTick = function() return "invalid" end }
+    Harness.truthy(controller:on_frame_stage(Constants.FRAME_RENDER_START))
+    local generation = controller.tracker.generation
+    Harness.truthy(controller:on_frame_stage(Constants.FRAME_RENDER_START))
+    Harness.equal(controller.tracker.generation, generation + 1)
+end)
+
 Harness.test("live frame-stage value overrides the documented fallback", function()
     local controller = setup()
     controller.frame_net_update_end = 14
@@ -200,6 +279,20 @@ Harness.test("new current charge appears on the immediately following Draw model
     enemy.nonlocal_charge = 0.91
     controller:on_frame_stage(4)
     Harness.equal(controller.latest_prepared.lines[2], "BLU 91% (KRITZ)")
+end)
+
+Harness.test("unchanged display reuses prepared and layout storage", function()
+    local controller = setup()
+    controller:on_frame_stage(4)
+    local prepared = controller.latest_prepared
+    local bounds = controller.bounds
+    local line1 = prepared.lines[1]
+    controller:on_draw()
+    controller:on_frame_stage(4)
+    controller:on_draw()
+    Harness.truthy(controller.latest_prepared == prepared)
+    Harness.truthy(controller.bounds == bounds)
+    Harness.truthy(controller.latest_prepared.lines[1] == line1)
 end)
 
 Harness.test("omitted local Medic reaches the next Draw through GetLocalPlayer", function()
@@ -327,6 +420,7 @@ Harness.test("repeated Draw reuses one font and fixed per-frame resources", func
     Harness.equal(host.state.font_arguments[2], 13)
     Harness.equal(host.state.font_arguments[3], 400)
     Harness.equal(host.state.font_arguments[4], 0x010)
+    Harness.same_table(host.state.input_calls, {})
 end)
 
 Harness.test("event callback queues without reconciling", function()

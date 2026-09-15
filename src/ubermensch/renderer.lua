@@ -48,17 +48,17 @@ function Renderer.new(host)
     }, Renderer), nil
 end
 
---- Measures the three-line widget and caches unchanged text dimensions.
+--- Measures the four-line widget and caches unchanged text dimensions.
 -- Cache invalidation depends only on line text because the font and padding are
 -- immutable for a runtime load.
--- @param lines Exactly three formatted lines.
+-- @param lines Exactly four formatted lines.
 -- @return number Widget width.
 -- @return number Widget height.
 -- @return number Common line height.
 function Renderer:measure(lines)
     local cached = self.cache_lines
     if lines[1] == cached[1] and lines[2] == cached[2]
-        and lines[3] == cached[3]
+        and lines[3] == cached[3] and lines[4] == cached[4]
     then
         return self.cache_width, self.cache_height, self.cache_line_height
     end
@@ -66,7 +66,7 @@ function Renderer:measure(lines)
     draw_call(self, "SetFont", self.font)
     local maximum_width = 0
     local maximum_height = 0
-    for i = 1, 3 do
+    for i = 1, 4 do
         local ok, width, height = Safe.library(
             self.host.draw,
             "GetTextSize",
@@ -89,10 +89,13 @@ function Renderer:measure(lines)
     cached[1] = lines[1]
     cached[2] = lines[2]
     cached[3] = lines[3]
+    cached[4] = lines[4]
     self.cache_width = maximum_width + layout.horizontal_padding * 2
-    self.cache_height = maximum_height * 3
+    self.cache_height = maximum_height * 4
         + layout.vertical_padding * 2
         + layout.line_gap * 2
+        + layout.separator_gap * 2
+        + layout.separator_thickness
     self.cache_line_height = maximum_height
     return self.cache_width, self.cache_height, self.cache_line_height
 end
@@ -108,6 +111,22 @@ local function set_color(self, color)
         color[2],
         color[3],
         color[4]
+    )
+end
+
+--- Draws the fixed one-pixel separator between Uber and team-count content.
+-- @param self Renderer instance.
+-- @param bounds Integral widget bounds.
+-- @param y Integral separator top coordinate.
+local function draw_separator(self, bounds, y)
+    set_color(self, Constants.TEAM_COUNT_COLORS.separator)
+    draw_call(
+        self,
+        "FilledRect",
+        bounds.x + Constants.LAYOUT.horizontal_padding,
+        y,
+        bounds.x + bounds.width - Constants.LAYOUT.horizontal_padding,
+        y + Constants.LAYOUT.separator_thickness
     )
 end
 
@@ -140,8 +159,8 @@ local function draw_warning_border(self, x, y, width, height)
 end
 
 --- Renders one prepared frame with the exact rectangle/text call budget.
--- Each frame uses one background rectangle and three text calls, plus exactly
--- four rectangles when source honesty requires the warning border.
+-- Each frame uses one background, one separator, and four text calls, plus
+-- exactly four rectangles when source honesty requires the warning border.
 -- @param prepared Prepared lines, colors, and warning flag.
 -- @param bounds Pixel bounds and line height.
 function Renderer:draw(prepared, bounds)
@@ -172,6 +191,13 @@ function Renderer:draw(prepared, bounds)
         draw_call(self, "Text", text_x, text_y, prepared.lines[i])
         text_y = text_y + bounds.line_height + Constants.LAYOUT.line_gap
     end
+    text_y = text_y - Constants.LAYOUT.line_gap
+        + Constants.LAYOUT.separator_gap
+    draw_separator(self, bounds, text_y)
+    text_y = text_y + Constants.LAYOUT.separator_thickness
+        + Constants.LAYOUT.separator_gap
+    set_color(self, prepared.colors[4])
+    draw_call(self, "Text", text_x, text_y, prepared.lines[4])
 end
 
 return Renderer

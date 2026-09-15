@@ -313,6 +313,7 @@ function Views.prepared(prepared)
             copy_array(prepared.colors[1]),
             copy_array(prepared.colors[2]),
             copy_array(prepared.colors[3]),
+            copy_array(prepared.colors[4]),
         },
         warning = prepared.warning == true,
     }
@@ -323,6 +324,7 @@ end
 -- @return table Privacy-safe decision evidence.
 function Views:decision(info)
     local model = info.model
+    local alive_counts = info.tracking.alive_counts
     local decision = {
         capture_sequence = info.sequence,
         capture_source = info.source,
@@ -332,9 +334,14 @@ function Views:decision(info)
         local_team = info.tracking.local_team,
         local_class = info.tracking.local_class,
         local_alive = info.tracking.local_alive,
+        alive_counts = alive_counts ~= nil and {
+            red = alive_counts[2],
+            blu = alive_counts[3],
+        } or nil,
         local_side = model ~= nil and self:side(model.local_side) or nil,
         enemy_side = model ~= nil and self:side(model.enemy_side) or nil,
         comparison = model ~= nil and model.comparison or nil,
+        team_counts = model ~= nil and model.team_counts or nil,
         prepared = Views.prepared(info.prepared),
     }
     -- Lua's `a and false or nil` idiom loses a legitimate false value. Assign

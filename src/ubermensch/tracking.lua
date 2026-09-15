@@ -634,9 +634,21 @@ function Tracking.reconcile(tracker, snapshot)
 
     local candidates = {}
     local dead_candidates = {}
+    local alive_counts = snapshot.roster_available and {
+        [Constants.TEAM.RED] = 0,
+        [Constants.TEAM.BLU] = 0,
+    } or nil
     local local_class = snapshot.local_class
     local local_alive = snapshot.local_alive
     for _, record in pairs(tracker.records) do
+        if alive_counts ~= nil
+            and record.connected == true
+            and record.valid == true
+            and record.alive == true
+            and alive_counts[record.team] ~= nil
+        then
+            alive_counts[record.team] = alive_counts[record.team] + 1
+        end
         if record.class == Constants.MEDIC_CLASS
             and record.connected ~= false and record.valid ~= false
         then
@@ -678,6 +690,7 @@ function Tracking.reconcile(tracker, snapshot)
         now = now,
         generation = tracker.generation,
         roster_available = snapshot.roster_available,
+        alive_counts = alive_counts,
         candidates = candidates,
         dead_candidates = dead_candidates,
         local_userid = tracker.local_userid,

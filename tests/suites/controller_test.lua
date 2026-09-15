@@ -77,13 +77,36 @@ Harness.test("preferred network-update-end capture reaches the next Draw", funct
         controller.latest_prepared.lines[2],
         "BLU |  50% | 16s | KRITZ"
     )
+    Harness.equal(controller.latest_prepared.lines[4], "2 vs. 1")
     local acquisition = host.state.acquisition_calls
     local rendered, blocker = controller:on_draw()
     Harness.truthy(rendered)
     Harness.is_nil(blocker)
     Harness.equal(host.state.acquisition_calls, acquisition)
-    Harness.equal(count_calls(host.state.draw_calls, "rect"), 1)
-    Harness.equal(count_calls(host.state.draw_calls, "text"), 3)
+    Harness.equal(count_calls(host.state.draw_calls, "rect"), 2)
+    Harness.equal(count_calls(host.state.draw_calls, "text"), 4)
+end)
+
+Harness.test("authoritative lifecycle changes update team counts next capture", function()
+    local controller, host = setup()
+    controller:on_frame_stage(Constants.FRAME_NET_UPDATE_END)
+    host.state.players[3].options.alive = false
+    host.state.resource = Fakes.resource({
+        [1] = { connected = true, valid = true, alive = true, team = 2, userid = 10, class = 1, charge = 0 },
+        [2] = { connected = true, valid = true, alive = true, team = 2, userid = 20, class = 5, charge = 75 },
+        [3] = { connected = true, valid = true, alive = false, team = 3, userid = 30, class = 5, charge = 0 },
+    })
+    controller:on_frame_stage(Constants.FRAME_NET_UPDATE_END)
+    Harness.equal(controller.latest_prepared.lines[4], "2 vs. 0")
+
+    host.state.players[3].options.alive = true
+    host.state.resource = Fakes.resource({
+        [1] = { connected = true, valid = true, alive = true, team = 2, userid = 10, class = 1, charge = 0 },
+        [2] = { connected = true, valid = true, alive = true, team = 2, userid = 20, class = 5, charge = 75 },
+        [3] = { connected = true, valid = true, alive = true, team = 3, userid = 30, class = 5, charge = 0 },
+    })
+    controller:on_frame_stage(Constants.FRAME_NET_UPDATE_END)
+    Harness.equal(controller.latest_prepared.lines[4], "2 vs. 1")
 end)
 
 Harness.test("render-start captures only when network-update end was absent", function()
@@ -385,7 +408,7 @@ Harness.test("omitted local Medic reaches the next Draw through GetLocalPlayer",
     local acquisition_calls = host.state.acquisition_calls
     Harness.truthy(controller:on_draw())
     Harness.equal(host.state.acquisition_calls, acquisition_calls)
-    Harness.equal(count_calls(host.state.draw_calls, "text"), 3)
+    Harness.equal(count_calls(host.state.draw_calls, "text"), 4)
 end)
 
 Harness.test("partial current loss estimates only missing fields and warns", function()
@@ -456,13 +479,31 @@ Harness.test("dormant resource data warns and full reacquisition clears warning"
     )
 end)
 
-Harness.test("warning frame adds four rectangles and no text", function()
+Harness.test("warning frame adds four rectangles and no extra text", function()
     local controller, host = setup()
     controller:on_frame_stage(4)
     controller.latest_prepared.warning = true
     controller:on_draw()
-    Harness.equal(count_calls(host.state.draw_calls, "rect"), 5)
-    Harness.equal(count_calls(host.state.draw_calls, "text"), 3)
+    Harness.equal(count_calls(host.state.draw_calls, "rect"), 6)
+    Harness.equal(count_calls(host.state.draw_calls, "text"), 4)
+end)
+
+Harness.test("ordinary frame draws one integral separator inside the widget", function()
+    local controller, host = setup()
+    controller:on_frame_stage(4)
+    controller:on_draw()
+    local rectangles = {}
+    for i = 1, #host.state.draw_calls do
+        if host.state.draw_calls[i][1] == "rect" then
+            rectangles[#rectangles + 1] = host.state.draw_calls[i]
+        end
+    end
+    Harness.equal(#rectangles, 2)
+    local separator = rectangles[2]
+    Harness.equal(separator[5] - separator[3], 1)
+    for i = 2, #separator do
+        Harness.equal(separator[i], math.floor(separator[i]))
+    end
 end)
 
 Harness.test("repeated Draw reuses one font and fixed per-frame resources", function()
@@ -472,8 +513,8 @@ Harness.test("repeated Draw reuses one font and fixed per-frame resources", func
     controller:on_draw()
     controller:on_draw()
     Harness.equal(host.state.font_creations, 1)
-    Harness.equal(count_calls(host.state.draw_calls, "rect"), 3)
-    Harness.equal(count_calls(host.state.draw_calls, "text"), 9)
+    Harness.equal(count_calls(host.state.draw_calls, "rect"), 6)
+    Harness.equal(count_calls(host.state.draw_calls, "text"), 12)
     Harness.equal(host.state.font_arguments[1], "Lucida Console")
     Harness.equal(host.state.font_arguments[2], 14)
     Harness.equal(host.state.font_arguments[3], 600)
@@ -525,5 +566,5 @@ Harness.test("visibility hides without discarding latest values", function()
     Harness.equal(count_calls(host.state.draw_calls, "text"), 0)
     host.state.console = false
     controller:on_draw()
-    Harness.equal(count_calls(host.state.draw_calls, "text"), 3)
+    Harness.equal(count_calls(host.state.draw_calls, "text"), 4)
 end)

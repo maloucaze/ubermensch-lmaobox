@@ -4,6 +4,7 @@
 local Constants = require("ubermensch.constants")
 local Comparison = require("ubermensch.comparison")
 local Selection = require("ubermensch.selection")
+local TeamCounts = require("ubermensch.team_counts")
 local Weapons = require("ubermensch.weapons")
 
 local State = {}
@@ -121,7 +122,7 @@ local function resolve_comparison(local_side, enemy_side)
     return Comparison.both(local_side, enemy_side)
 end
 
---- Resolves the latest tracking snapshot into the three-line HUD model.
+--- Resolves the latest tracking snapshot into the HUD model.
 -- Self-Medic mode compares the alive local Medic directly. Other modes select
 -- the nearest-time-to-ready eligible Medic on each team.
 -- @param tracking Tracker view containing candidates, roster state, and local identity.
@@ -206,11 +207,17 @@ function State.resolve(tracking, prior_selection)
         tracking.roster_available
     )
     local comparison = resolve_comparison(local_side, enemy_side)
+    local team_counts = TeamCounts.resolve(
+        tracking.alive_counts,
+        local_team,
+        tracking.roster_available
+    )
 
     return {
         local_side = local_side,
         enemy_side = enemy_side,
         comparison = comparison,
+        team_counts = team_counts,
         self_mode = self_mode,
         warning = not tracking.roster_available
             or side_warns(local_side)

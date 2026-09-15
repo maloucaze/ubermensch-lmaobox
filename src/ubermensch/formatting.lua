@@ -116,6 +116,25 @@ local function update_comparison_cache(cache, model)
     return changed
 end
 
+--- Resolves cached scalar tokens for the authoritative alive-player line.
+-- @param cache Reusable team-count token cache.
+-- @param counts Resolved team-count model.
+-- @return boolean Whether the displayed line changed.
+local function update_team_counts_cache(cache, counts)
+    local available = counts ~= nil and counts.available == true
+    local local_count = available and counts.local_count or nil
+    local enemy_count = available and counts.enemy_count or nil
+    local changed = cache.available ~= available
+        or cache.local_count ~= local_count
+        or cache.enemy_count ~= enemy_count
+    if changed then
+        cache.available = available
+        cache.local_count = local_count
+        cache.enemy_count = enemy_count
+    end
+    return changed
+end
+
 --- Builds percentage and readiness text from a cached normal side.
 -- @param cache Side-token cache.
 -- @return string Percentage token.
@@ -233,6 +252,17 @@ local function rebuild_lines(prepared)
     end
 end
 
+--- Formats the cached local-first alive-player counts.
+-- @param cache Team-count token cache.
+-- @return string Factual counts or the neutral unavailable form.
+local function team_counts_line(cache)
+    if not cache.available then
+        return "- vs. -"
+    end
+    return tostring(cache.local_count)
+        .. " vs. " .. tostring(cache.enemy_count)
+end
+
 --- Formats one team line independently, without cross-line padding.
 -- @param side Resolved display side.
 -- @return string Compact missing/dead line or normal four-column line.
@@ -291,17 +321,23 @@ function Formatting.comparison_color(comparison)
     return Constants.COLORS.disadvantage
 end
 
+--- Resolves the fixed color for both factual and unavailable team counts.
+-- @return table RGBA color constant.
+function Formatting.team_counts_color()
+    return Constants.TEAM_COUNT_COLORS.text
+end
+
 --- Produces aligned text and colors, reusing prior storage safely.
--- The three lines rebuild only when a display-rounded token changes; raw values
+-- The Uber lines rebuild only when a display-rounded token changes; raw values
 -- continue to drive selection and classification before presentation.
 -- @param model Resolved HUD model.
 -- @param prepared Optional result from the preceding capture.
--- @return table Three lines, three colors, and warning-border flag.
+-- @return table Four lines, four colors, and warning-border flag.
 function Formatting.prepare(model, prepared)
     prepared = prepared or {
         lines = {},
         colors = {},
-        cache = { {}, {}, {} },
+        cache = { {}, {}, {}, {} },
     }
     local changed = update_side_cache(prepared.cache[1], model.local_side)
     changed = update_side_cache(prepared.cache[2], model.enemy_side) or changed
@@ -309,9 +345,13 @@ function Formatting.prepare(model, prepared)
     if changed then
         rebuild_lines(prepared)
     end
+    if update_team_counts_cache(prepared.cache[4], model.team_counts) then
+        prepared.lines[4] = team_counts_line(prepared.cache[4])
+    end
     prepared.colors[1] = Formatting.side_color(model.local_side)
     prepared.colors[2] = Formatting.side_color(model.enemy_side)
     prepared.colors[3] = Formatting.comparison_color(model.comparison)
+    prepared.colors[4] = Formatting.team_counts_color()
     prepared.warning = model.warning
     return prepared
 end

@@ -189,9 +189,11 @@ local function decision_changed(self, info)
         or previous.line1 ~= (lines ~= nil and lines[1] or nil)
         or previous.line2 ~= (lines ~= nil and lines[2] or nil)
         or previous.line3 ~= (lines ~= nil and lines[3] or nil)
+        or previous.line4 ~= (lines ~= nil and lines[4] or nil)
         or previous.color1 ~= (colors ~= nil and colors[1] or nil)
         or previous.color2 ~= (colors ~= nil and colors[2] or nil)
         or previous.color3 ~= (colors ~= nil and colors[3] or nil)
+        or previous.color4 ~= (colors ~= nil and colors[4] or nil)
         or previous.warning ~= (prepared ~= nil and prepared.warning or nil)
     if changed then
         previous = previous or {}
@@ -216,9 +218,11 @@ local function decision_changed(self, info)
         previous.line1 = lines ~= nil and lines[1] or nil
         previous.line2 = lines ~= nil and lines[2] or nil
         previous.line3 = lines ~= nil and lines[3] or nil
+        previous.line4 = lines ~= nil and lines[4] or nil
         previous.color1 = colors ~= nil and colors[1] or nil
         previous.color2 = colors ~= nil and colors[2] or nil
         previous.color3 = colors ~= nil and colors[3] or nil
+        previous.color4 = colors ~= nil and colors[4] or nil
         previous.warning = prepared ~= nil and prepared.warning or nil
         self.last_decision = previous
     end

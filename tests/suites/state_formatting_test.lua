@@ -12,6 +12,7 @@ local function tracking(candidates, overrides)
         last_local_team = 2,
         local_class = 1,
         local_alive = true,
+        alive_counts = { [2] = 1, [3] = 1 },
     }
     for key, value in pairs(overrides or {}) do
         result[key] = value
@@ -24,6 +25,11 @@ Harness.test("exact baseline formatting", function()
         local_side = Fixtures.side(2, "KRITZ", 75, "current", false),
         enemy_side = Fixtures.side(3, "STOCK", 50, "current", false),
         comparison = { status = "ADV", charge_difference = 25, time_difference = 12 },
+        team_counts = {
+            available = true,
+            local_count = 8,
+            enemy_count = 3,
+        },
         warning = false,
     }
     local prepared = Formatting.prepare(model)
@@ -31,6 +37,7 @@ Harness.test("exact baseline formatting", function()
         "RED |  75% |   8s | KRITZ",
         "BLU |  50% |  20s | STOCK",
         "ADV | +25% | +12s",
+        "8 vs. 3",
     })
 end)
 
@@ -45,13 +52,51 @@ Harness.test("equal columns align exactly with whole numbers", function()
             charge_difference = 0,
             time_difference = 0,
         },
+        team_counts = {
+            available = true,
+            local_count = 12,
+            enemy_count = 12,
+        },
         warning = false,
     })
     Harness.same_table(prepared.lines, {
         "RED | 50% | 20s | STOCK",
         "BLU | 50% | 20s | STOCK",
         "EQL |  0% |  0s",
+        "12 vs. 12",
     })
+end)
+
+Harness.test("team counts format factual and unavailable roster states", function()
+    local model = {
+        local_side = Fixtures.side(2, "STOCK", 50, "current", false),
+        enemy_side = Fixtures.side(3, "STOCK", 50, "current", false),
+        comparison = {
+            status = "EQL",
+            charge_difference = 0,
+            time_difference = 0,
+        },
+        team_counts = {
+            available = true,
+            local_count = 1,
+            enemy_count = 2,
+        },
+        warning = false,
+    }
+    local prepared = Formatting.prepare(model)
+    Harness.equal(prepared.lines[4], "1 vs. 2")
+    Harness.same_table(
+        prepared.colors[4],
+        Constants.TEAM_COUNT_COLORS.text
+    )
+
+    model.team_counts = { available = false }
+    Formatting.prepare(model, prepared)
+    Harness.equal(prepared.lines[4], "- vs. -")
+    Harness.same_table(
+        prepared.colors[4],
+        Constants.TEAM_COUNT_COLORS.text
+    )
 end)
 
 Harness.test("BLU local side is listed first", function()
@@ -76,8 +121,10 @@ Harness.test("missing side formatting omits time", function()
         "RED |  75% | 10s | STOCK",
         "BLU | NO MED",
         "ADV | +75% |   -",
+        "1 vs. 1",
     })
     Harness.falsy(prepared.warning)
+    Harness.truthy(model.team_counts.available)
 end)
 
 Harness.test("approximate formatting and border", function()
@@ -93,6 +140,7 @@ Harness.test("approximate formatting and border", function()
         "RED |  ~88% |  ~5s | STOCK",
         "BLU |   73% |   9s | KRITZ",
         "EQL | ~+15% | ~+4s",
+        "- vs. -",
     })
     Harness.truthy(prepared.warning)
 end)
@@ -134,6 +182,7 @@ Harness.test("genuinely unknown fields produce dash", function()
         "RED | ?% | - | UNKNOWN",
         "BLU | ?% | - | UNKNOWN",
         "-",
+        "1 vs. 1",
     })
     Harness.truthy(prepared.warning)
 end)
@@ -144,6 +193,7 @@ Harness.test("two confirmed missing sides compare equal", function()
         "RED | NO MED",
         "BLU | NO MED",
         "EQL | 0% | -",
+        "1 vs. 1",
     })
     Harness.falsy(prepared.warning)
 end)
@@ -337,6 +387,8 @@ Harness.test("failed roster never proves no Medic", function()
     )
     Harness.equal(Formatting.comparison_line(model), "-")
     Harness.truthy(model.warning)
+    Harness.falsy(model.team_counts.available)
+    Harness.equal(Formatting.prepare(model).lines[4], "- vs. -")
 end)
 
 Harness.test("colors obey deployment readiness and status precedence", function()
@@ -348,6 +400,7 @@ Harness.test("colors obey deployment readiness and status precedence", function(
     Harness.same_table(Formatting.comparison_color({ status = "DIS" }), Constants.COLORS.disadvantage)
     Harness.same_table(Formatting.comparison_color({ status = "EQL" }), Constants.COLORS.text)
     Harness.same_table(Formatting.comparison_color(nil), Constants.COLORS.text)
+    Harness.same_table(Formatting.team_counts_color(), Constants.TEAM_COUNT_COLORS.text)
 end)
 
 Harness.test("all fixed RGBA values match the specification", function()
@@ -360,6 +413,8 @@ Harness.test("all fixed RGBA values match the specification", function()
     Harness.same_table(Constants.COLORS.warning, { 170, 140, 0, 255 })
     Harness.same_table(Constants.COLORS.unavailable, { 170, 170, 170, 255 })
     Harness.same_table(Constants.COLORS.background, { 15, 15, 18, 170 })
+    Harness.same_table(Constants.TEAM_COUNT_COLORS.text, { 255, 255, 255, 255 })
+    Harness.same_table(Constants.TEAM_COUNT_COLORS.separator, { 170, 170, 170, 255 })
 end)
 
 Harness.test("formatting is ASCII and never emits interval states", function()

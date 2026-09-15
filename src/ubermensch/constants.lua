@@ -3,7 +3,7 @@
 
 local Constants = {}
 
-Constants.VERSION = "2.1.0"
+Constants.VERSION = "2.2.1"
 Constants.PREFIX = "[Ubermensch]"
 
 Constants.TEAM = {
@@ -103,6 +103,12 @@ Constants.COLORS = {
     unavailable = { 170, 170, 170, 255 },
 }
 
+-- Team-count presentation remains independent from Uber status colors.
+Constants.TEAM_COUNT_COLORS = {
+    text = { 255, 255, 255, 255 },
+    separator = { 170, 170, 170, 255 },
+}
+
 Constants.FONT = {
     name = "Lucida Console",
     size = 14,
@@ -113,6 +119,8 @@ Constants.LAYOUT = {
     horizontal_padding = 6,
     vertical_padding = 4,
     line_gap = 1,
+    separator_gap = 3,
+    separator_thickness = 1,
     default_x = 0.02,
     default_y = 0.35,
 }

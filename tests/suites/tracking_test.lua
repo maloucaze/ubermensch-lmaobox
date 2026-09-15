@@ -19,6 +19,66 @@ local function baseline(tracker, players, overrides)
     )
 end
 
+Harness.test("authoritative alive counts include every playable class", function()
+    local tracker = Tracking.new()
+    local local_player = Fixtures.player(10, 1, 2, nil, nil, "resource")
+    local_player.class = 1
+    local_player.current_present = true
+    local_player.current_team = 2
+    local_player.current_class = 1
+    local_player.current_alive = false
+    local ally = Fixtures.player(11, 2, 2, nil, nil, "resource")
+    ally.class = 3
+    local enemy_one = Fixtures.player(20, 3, 3, nil, nil, "resource")
+    enemy_one.class = 7
+    local enemy_two = Fixtures.player(21, 4, 3, nil, nil, "resource")
+    enemy_two.class = 8
+
+    local view = baseline(tracker, {
+        local_player,
+        ally,
+        enemy_one,
+        enemy_two,
+    })
+    Harness.equal(view.alive_counts[2], 1)
+    Harness.equal(view.alive_counts[3], 2)
+end)
+
+Harness.test("failed roster authority withholds alive counts", function()
+    local tracker = Tracking.new()
+    local view = Tracking.reconcile(tracker, Fixtures.snapshot({
+        players = {},
+        roster_available = false,
+    }))
+    Harness.is_nil(view.alive_counts)
+end)
+
+Harness.test("authoritative roster membership and team changes replace counts", function()
+    local tracker = Tracking.new()
+    local local_player = Fixtures.player(10, 1, 2, nil, nil, "resource")
+    local_player.class = 1
+    local enemy = Fixtures.player(20, 2, 3, nil, nil, "resource")
+    enemy.class = 1
+    local view = baseline(tracker, { local_player, enemy })
+    Harness.equal(view.alive_counts[2], 1)
+    Harness.equal(view.alive_counts[3], 1)
+
+    enemy.team = 2
+    view = Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 11,
+        players = { local_player, enemy },
+    }))
+    Harness.equal(view.alive_counts[2], 2)
+    Harness.equal(view.alive_counts[3], 0)
+
+    view = Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 12,
+        players = { local_player },
+    }))
+    Harness.equal(view.alive_counts[2], 1)
+    Harness.equal(view.alive_counts[3], 0)
+end)
+
 Harness.test("current fields retain independent current sources", function()
     local tracker = Tracking.new()
     local row = Fixtures.player(20, 2, 3, "STOCK", 73, "current")

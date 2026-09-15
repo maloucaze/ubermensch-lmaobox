@@ -69,8 +69,14 @@ Harness.test("preferred network-update-end capture reaches the next Draw", funct
     Harness.falsy(controller:on_frame_stage(3))
     Harness.is_nil(controller.latest_prepared)
     Harness.truthy(controller:on_frame_stage(Constants.FRAME_NET_UPDATE_END))
-    Harness.equal(controller.latest_prepared.lines[1], "RED 75% (STOCK)")
-    Harness.equal(controller.latest_prepared.lines[2], "BLU 50% (KRITZ)")
+    Harness.equal(
+        controller.latest_prepared.lines[1],
+        "RED |  75% | 10s | STOCK"
+    )
+    Harness.equal(
+        controller.latest_prepared.lines[2],
+        "BLU |  50% | 16s | KRITZ"
+    )
     local acquisition = host.state.acquisition_calls
     local rendered, blocker = controller:on_draw()
     Harness.truthy(rendered)
@@ -275,10 +281,44 @@ end)
 Harness.test("new current charge appears on the immediately following Draw model", function()
     local controller, _, _, enemy = setup()
     controller:on_frame_stage(4)
-    Harness.equal(controller.latest_prepared.lines[2], "BLU 50% (KRITZ)")
+    Harness.equal(
+        controller.latest_prepared.lines[2],
+        "BLU |  50% | 16s | KRITZ"
+    )
     enemy.nonlocal_charge = 0.91
     controller:on_frame_stage(4)
-    Harness.equal(controller.latest_prepared.lines[2], "BLU 91% (KRITZ)")
+    Harness.equal(
+        controller.latest_prepared.lines[2],
+        "BLU |  91% |  3s | KRITZ"
+    )
+end)
+
+Harness.test("known Medic death reaches Draw as exact compact fallback", function()
+    local controller, host = setup()
+    controller:on_frame_stage(4)
+    host.state.now = 11
+    host.state.players[3].options.alive = false
+    host.state.resource = Fakes.resource({
+        [1] = {
+            connected = true, valid = true, alive = true,
+            team = 2, userid = 10, class = 1, charge = 0,
+        },
+        [2] = {
+            connected = true, valid = true, alive = true,
+            team = 2, userid = 20, class = 5, charge = 75,
+        },
+        [3] = {
+            connected = true, valid = true, alive = false,
+            team = 3, userid = 30, class = 5, charge = 50,
+        },
+    })
+    controller:on_frame_stage(4)
+    Harness.equal(controller.latest_prepared.lines[2], "BLU | DEAD MED")
+    Harness.same_table(
+        controller.latest_prepared.colors[2],
+        Constants.COLORS.unavailable
+    )
+    Harness.falsy(controller.latest_prepared.warning)
 end)
 
 Harness.test("unchanged display reuses prepared and layout storage", function()
@@ -338,7 +378,10 @@ Harness.test("omitted local Medic reaches the next Draw through GetLocalPlayer",
     })
 
     Harness.truthy(controller:on_frame_stage(Constants.FRAME_NET_UPDATE_END))
-    Harness.equal(controller.latest_prepared.lines[1], "RED 42% (KRITZ)")
+    Harness.equal(
+        controller.latest_prepared.lines[1],
+        "RED |  42% | 19s | KRITZ"
+    )
     local acquisition_calls = host.state.acquisition_calls
     Harness.truthy(controller:on_draw())
     Harness.equal(host.state.acquisition_calls, acquisition_calls)
@@ -357,8 +400,14 @@ Harness.test("partial current loss estimates only missing fields and warns", fun
     })
     ally.nonlocal_charge = 0.80
     controller:on_frame_stage(4)
-    Harness.equal(controller.latest_prepared.lines[1], "RED 80% (STOCK)")
-    Harness.equal(controller.latest_prepared.lines[2], "BLU ~56% (KRITZ)")
+    Harness.equal(
+        controller.latest_prepared.lines[1],
+        "RED |   80% |   8s | STOCK"
+    )
+    Harness.equal(
+        controller.latest_prepared.lines[2],
+        "BLU |  ~56% | ~14s | KRITZ"
+    )
     Harness.truthy(controller.latest_prepared.warning)
 end)
 
@@ -369,7 +418,10 @@ Harness.test("current charge keeps updating when family and deployment reads fai
     enemy.deployment_error = true
     enemy.nonlocal_charge = 0.66
     controller:on_frame_stage(4)
-    Harness.equal(controller.latest_prepared.lines[2], "BLU 66% (KRITZ)")
+    Harness.equal(
+        controller.latest_prepared.lines[2],
+        "BLU |  66% | ~11s | KRITZ"
+    )
     Harness.truthy(controller.latest_prepared.warning)
 end)
 
@@ -390,12 +442,18 @@ Harness.test("dormant resource data warns and full reacquisition clears warning"
     host.state.players[3].options.dormant = true
     controller:on_frame_stage(4)
     Harness.truthy(controller.latest_prepared.warning)
-    Harness.equal(controller.latest_prepared.lines[2], "BLU ~50% (KRITZ)")
+    Harness.equal(
+        controller.latest_prepared.lines[2],
+        "BLU |  ~50% | ~16s | KRITZ"
+    )
     host.state.players[3].options.dormant = false
     enemy.nonlocal_charge = 0.55
     controller:on_frame_stage(4)
     Harness.falsy(controller.latest_prepared.warning)
-    Harness.equal(controller.latest_prepared.lines[2], "BLU 55% (KRITZ)")
+    Harness.equal(
+        controller.latest_prepared.lines[2],
+        "BLU |  55% | 14s | KRITZ"
+    )
 end)
 
 Harness.test("warning frame adds four rectangles and no text", function()
@@ -416,9 +474,9 @@ Harness.test("repeated Draw reuses one font and fixed per-frame resources", func
     Harness.equal(host.state.font_creations, 1)
     Harness.equal(count_calls(host.state.draw_calls, "rect"), 3)
     Harness.equal(count_calls(host.state.draw_calls, "text"), 9)
-    Harness.equal(host.state.font_arguments[1], "Verdana")
-    Harness.equal(host.state.font_arguments[2], 13)
-    Harness.equal(host.state.font_arguments[3], 400)
+    Harness.equal(host.state.font_arguments[1], "Lucida Console")
+    Harness.equal(host.state.font_arguments[2], 14)
+    Harness.equal(host.state.font_arguments[3], 600)
     Harness.equal(host.state.font_arguments[4], 0x010)
     Harness.same_table(host.state.input_calls, {})
 end)

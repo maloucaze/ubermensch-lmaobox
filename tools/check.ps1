@@ -133,6 +133,7 @@ try {
     $luaFiles = @(
         Get-Item -LiteralPath 'ubermensch.lua'
         Get-Item -LiteralPath 'ubermensch_validation.lua'
+        Get-Item -LiteralPath 'tools\benchmark_hot_path.lua'
         Get-ChildItem -LiteralPath 'src', 'tests' -Filter '*.lua' -File -Recurse
         Get-ChildItem -LiteralPath 'tools\validation' -Filter '*.lua' -File -Recurse
     ) | Sort-Object -Property FullName -Unique
@@ -144,7 +145,8 @@ try {
     Write-Output "PASS: syntax valid for $($luaFiles.Count) Lua files."
 
     Write-Output "==> Luacheck: $luacheck"
-    & $luacheck '--codes' '--ranges' '--no-color' 'src' 'tests' 'tools/validation'
+    & $luacheck '--codes' '--ranges' '--no-color' `
+        'src' 'tests' 'tools/validation' 'tools/benchmark_hot_path.lua'
     Assert-LastExitCode -Description 'Luacheck static analysis'
 
     Write-Output "==> LDoc: $ldoc"

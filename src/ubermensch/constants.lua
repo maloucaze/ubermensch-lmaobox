@@ -3,7 +3,7 @@
 
 local Constants = {}
 
-Constants.VERSION = "2.0.1"
+Constants.VERSION = "2.1.0"
 Constants.PREFIX = "[Ubermensch]"
 
 Constants.TEAM = {
@@ -100,12 +100,13 @@ Constants.COLORS = {
     red_deployed = { 255, 80, 80, 255 },
     blu_deployed = { 80, 160, 255, 255 },
     warning = { 170, 140, 0, 255 },
+    unavailable = { 170, 170, 170, 255 },
 }
 
 Constants.FONT = {
-    name = "Verdana",
-    size = 13,
-    weight = 400,
+    name = "Lucida Console",
+    size = 14,
+    weight = 600,
     flags = 0x010,
 }
 Constants.LAYOUT = {

@@ -89,3 +89,27 @@ Harness.test("ally and enemy selection are independent", function()
     Harness.equal(Selection.for_team({ ally, enemy }, 2).entity_index, 1)
     Harness.equal(Selection.for_team({ ally, enemy }, 3).entity_index, 2)
 end)
+
+Harness.test("dead fallback retains prior then chooses newest death", function()
+    local old = candidate(1, "STOCK", nil, "dead", false, {
+        alive = false, dead = true, died_at = 20,
+    })
+    local newest = candidate(2, "KRITZ", nil, "dead", false, {
+        alive = false, dead = true, died_at = 30,
+    })
+    Harness.equal(
+        Selection.dead_for_team({ old, newest }, 2, old.userid),
+        old
+    )
+    Harness.equal(Selection.dead_for_team({ old, newest }, 2), newest)
+end)
+
+Harness.test("dead fallback ties use the lowest entity index", function()
+    local high = candidate(8, "STOCK", nil, "dead", false, {
+        alive = false, dead = true, died_at = 30,
+    })
+    local low = candidate(3, "KRITZ", nil, "dead", false, {
+        alive = false, dead = true, died_at = 30,
+    })
+    Harness.equal(Selection.dead_for_team({ high, low }, 2), low)
+end)

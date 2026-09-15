@@ -135,6 +135,11 @@ local function side_fingerprint(side)
     if side.missing == true then
         return "missing", nil, nil, side.team, nil, nil, nil, false
     end
+    if side.dead == true then
+        return "dead", side.userid, side.entity_index, side.team,
+            side.family_source, side.charge_source,
+            side.deployment_source, false
+    end
     return "medic", side.userid, side.entity_index, side.team,
         side.family_source, side.charge_source, side.deployment_source,
         side.deployed
@@ -443,6 +448,22 @@ local function record_domain_details(self, info, now)
             now
         )
     end
+    local dead_candidates = info.tracking.dead_candidates or {}
+    for index = 1, #dead_candidates do
+        local candidate = dead_candidates[index]
+        local view = views:candidate(candidate)
+        local key = view.uid or ("E" .. tostring(view.entity_index or index))
+        seen_candidate[key] = true
+        emit_delta(
+            self,
+            "candidate",
+            key,
+            view,
+            view,
+            sequence,
+            now
+        )
+    end
     emit_removals(self, "candidate", seen_candidate, sequence, now)
 end
 
@@ -469,6 +490,12 @@ local function checkpoint_view(self, info)
     local candidates = {}
     for index = 1, #info.tracking.candidates do
         candidates[index] = views:candidate(info.tracking.candidates[index])
+    end
+    local dead_candidates = {}
+    for index = 1, #(info.tracking.dead_candidates or {}) do
+        dead_candidates[index] = views:candidate(
+            info.tracking.dead_candidates[index]
+        )
     end
     local records = {}
     for _, record in pairs(info.tracker.records) do
@@ -518,6 +545,7 @@ local function checkpoint_view(self, info)
         tracker_records = records,
         phase_history = info.tracker.phase_history,
         candidates = candidates,
+        dead_candidates = dead_candidates,
         decision = views:decision(info),
     }
 end
@@ -534,6 +562,14 @@ local function selection_side(side)
     if side.missing == true then
         return {
             state = "missing",
+            team = side.team,
+        }
+    end
+    if side.dead == true then
+        return {
+            state = "dead",
+            uid = side.uid,
+            entity_index = side.entity_index,
             team = side.team,
         }
     end
@@ -796,6 +832,7 @@ function Recorder:on_capture(info)
             capture_sources = capture_source_counts(self),
             tracker_records = table_count(info.tracker.records),
             candidates = #info.tracking.candidates,
+            dead_candidates = #(info.tracking.dead_candidates or {}),
             queued_events = #info.tracker.events,
             buffer_bytes = self.writer.buffer_bytes,
             dropped_records = self.writer.dropped_records,

@@ -77,11 +77,30 @@ local function clear_gameplay(record, clear_family)
     record.frame_deployed = nil
     record.frame_deployment_source = nil
     if clear_family then
+        record.died_at = nil
         record.family = nil
         record.unsupported = nil
         record.frame_family = nil
         record.frame_family_source = nil
     end
+end
+
+--- Applies an authoritative alive transition and timestamps a new death.
+-- Repeated dead observations retain the original transition time so selection
+-- does not become dependent on roster polling order or frequency.
+-- @param record Retained player record.
+-- @param alive Authoritative alive value or nil.
+-- @param now Monotonic observation time.
+local function set_alive(record, alive, now)
+    if alive == nil then
+        return
+    end
+    if alive == false and record.alive ~= false then
+        record.died_at = now
+    elseif alive == true then
+        record.died_at = nil
+    end
+    record.alive = alive
 end
 
 --- Creates a tracking store with bounded event and phase histories.
@@ -218,10 +237,10 @@ local function apply_event(tracker, event, now)
     local record = obtain_record(tracker, userid, nil, now)
     local name = event.name
     if name == "player_death" then
-        record.alive = false
+        set_alive(record, false, event.time or now)
         clear_gameplay(record, false)
     elseif name == "player_spawn" then
-        record.alive = true
+        set_alive(record, true, event.time or now)
         set_anchor(record, 0, event.time or now, false, "event")
         record.deployed = false
         record.deployment_source = "event"
@@ -286,9 +305,22 @@ local function apply_resource_lifecycle(tracker, players, now)
                 present[record.key] = true
                 record.connected = player.connected
                 record.valid = player.valid
+                if record.team ~= nil and player.team ~= nil
+                    and record.team ~= player.team
+                then
+                    clear_gameplay(record, true)
+                end
+                if record.class ~= nil and player.class ~= nil
+                    and record.class ~= player.class
+                then
+                    clear_gameplay(
+                        record,
+                        player.class ~= Constants.MEDIC_CLASS
+                    )
+                end
                 record.team = player.team
                 record.class = player.class
-                record.alive = player.alive
+                set_alive(record, player.alive, now)
                 record.resource_charge = player.resource_charge
                 record.frame_seen = true
                 if player.connected == false
@@ -343,7 +375,7 @@ local function apply_current_overlay(tracker, players, now)
                     record.class = player.current_class
                 end
                 if player.current_alive ~= nil then
-                    record.alive = player.current_alive
+                    set_alive(record, player.current_alive, now)
                     if player.current_alive == false then
                         clear_gameplay(record, false)
                     end
@@ -601,23 +633,43 @@ function Tracking.reconcile(tracker, snapshot)
     tracker.generation = tracker.generation + 1
 
     local candidates = {}
+    local dead_candidates = {}
     local local_class = snapshot.local_class
     local local_alive = snapshot.local_alive
     for _, record in pairs(tracker.records) do
-        if record.class == Constants.MEDIC_CLASS and record.alive == true
+        if record.class == Constants.MEDIC_CLASS
             and record.connected ~= false and record.valid ~= false
         then
-            advance_deployment(record, now)
-            local candidate = resolve_candidate(
-                record,
-                now,
-                tracker.phase_history
-            )
-            candidates[#candidates + 1] = candidate
-            if candidate.is_local or candidate.userid == tracker.local_userid then
-                candidate.is_local = true
-                local_class = record.class
-                local_alive = record.alive
+            if record.alive == true then
+                advance_deployment(record, now)
+                local candidate = resolve_candidate(
+                    record,
+                    now,
+                    tracker.phase_history
+                )
+                candidates[#candidates + 1] = candidate
+                if candidate.is_local
+                    or candidate.userid == tracker.local_userid
+                then
+                    candidate.is_local = true
+                    local_class = record.class
+                    local_alive = record.alive
+                end
+            elseif record.alive == false
+                and record.unsupported ~= true
+                and Weapons.is_supported(record.family)
+            then
+                dead_candidates[#dead_candidates + 1] = {
+                    userid = record.userid,
+                    entity_index = record.entity_index,
+                    team = record.team,
+                    class = record.class,
+                    alive = false,
+                    dead = true,
+                    family = record.family,
+                    family_source = "retained",
+                    died_at = record.died_at,
+                }
             end
         end
     end
@@ -627,6 +679,7 @@ function Tracking.reconcile(tracker, snapshot)
         generation = tracker.generation,
         roster_available = snapshot.roster_available,
         candidates = candidates,
+        dead_candidates = dead_candidates,
         local_userid = tracker.local_userid,
         local_team = tracker.local_team,
         last_local_team = tracker.last_local_team,

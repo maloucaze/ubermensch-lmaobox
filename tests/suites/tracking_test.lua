@@ -103,6 +103,25 @@ Harness.test("deployment event is user-ID-specific and drains", function()
     Harness.falsy(find(view, 20).deployed)
 end)
 
+Harness.test("death event creates a fallback only for its user ID", function()
+    local tracker = Tracking.new()
+    local first = Fixtures.player(20, 2, 3, "STOCK", 50, "current")
+    local second = Fixtures.player(21, 3, 3, "KRITZ", 60, "current")
+    baseline(tracker, { first, second })
+    Tracking.enqueue(tracker, {
+        name = "player_death", userid = 21, time = 10.5,
+    })
+    local view = Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 11,
+        players = {},
+        roster_available = false,
+    }))
+    Harness.equal(find(view, 20).userid, 20)
+    Harness.equal(#view.dead_candidates, 1)
+    Harness.equal(view.dead_candidates[1].userid, 21)
+    Harness.equal(view.dead_candidates[1].died_at, 10.5)
+end)
+
 Harness.test("event-derived deployment cannot remain active after its drain", function()
     local tracker = Tracking.new()
     local row = Fixtures.player(20, 2, 3, "STOCK", 90, "current")
@@ -175,7 +194,7 @@ Harness.test("post-inventory application uses the same retained-family zero anch
     Harness.near(medic.charge, 2.5, 1e-9)
 end)
 
-Harness.test("death removes eligibility and class change invalidates family", function()
+Harness.test("death moves a known Medic to the dead fallback", function()
     local tracker = Tracking.new()
     local row = Fixtures.player(20, 2, 3, "STOCK", 50, "current")
     baseline(tracker, { row })
@@ -186,6 +205,10 @@ Harness.test("death removes eligibility and class change invalidates family", fu
         players = { row },
     }))
     Harness.is_nil(find(view, 20))
+    Harness.equal(#view.dead_candidates, 1)
+    Harness.equal(view.dead_candidates[1].userid, 20)
+    Harness.equal(view.dead_candidates[1].family, "STOCK")
+    Harness.equal(view.dead_candidates[1].died_at, 11)
 
     row.alive = true
     row.current_alive = true
@@ -196,6 +219,70 @@ Harness.test("death removes eligibility and class change invalidates family", fu
         players = { row },
     }))
     Harness.is_nil(find(view, 20))
+    Harness.equal(#view.dead_candidates, 0)
+end)
+
+Harness.test("repeated dead observations preserve the first death time", function()
+    local tracker = Tracking.new()
+    local row = Fixtures.player(20, 2, 3, "KRITZ", 50, "current")
+    baseline(tracker, { row })
+    row.alive = false
+    row.current_alive = false
+    local first = Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 11,
+        players = { row },
+    }))
+    local second = Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 15,
+        players = { row },
+    }))
+    Harness.equal(first.dead_candidates[1].died_at, 11)
+    Harness.equal(second.dead_candidates[1].died_at, 11)
+end)
+
+Harness.test("respawn clears dead fallback and creates a living candidate", function()
+    local tracker = Tracking.new()
+    local row = Fixtures.player(20, 2, 3, "STOCK", 50, "current")
+    baseline(tracker, { row })
+    row.alive = false
+    row.current_alive = false
+    Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 11,
+        players = { row },
+    }))
+    row.alive = true
+    row.current_alive = true
+    row.current_charge = 0
+    local view = Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 12,
+        players = { row },
+    }))
+    Harness.equal(#view.dead_candidates, 0)
+    Harness.equal(find(view, 20).charge, 0)
+end)
+
+Harness.test("team change clears an incompatible dead fallback", function()
+    local tracker = Tracking.new()
+    local row = Fixtures.player(20, 2, 3, "STOCK", 50, "current")
+    baseline(tracker, { row })
+    Tracking.enqueue(tracker, {
+        name = "player_death", userid = 20, time = 11,
+    })
+    local dead = Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 11,
+        players = {},
+        roster_available = false,
+    }))
+    Harness.equal(#dead.dead_candidates, 1)
+    Tracking.enqueue(tracker, {
+        name = "player_team", userid = 20, team = 2, time = 12,
+    })
+    local moved = Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 12,
+        players = {},
+        roster_available = false,
+    }))
+    Harness.equal(#moved.dead_candidates, 0)
 end)
 
 Harness.test("loss of readability estimates indefinitely from original anchor", function()

@@ -22,7 +22,7 @@ end
 --- Classifies a signed time advantage using the inclusive equality window.
 -- Positive values mean the local side becomes ready sooner.
 -- @param time_difference Enemy TTR minus local TTR.
--- @return string|nil `ADV`, `DIS`, or `EQUAL`; nil for invalid input.
+-- @return string|nil `ADV`, `DIS`, or `EQL`; nil for invalid input.
 function Comparison.classify(time_difference)
     if not Numbers.is_finite(time_difference) then
         return nil
@@ -33,7 +33,7 @@ function Comparison.classify(time_difference)
     if time_difference < -Constants.ADVANTAGE_SECONDS then
         return "DIS"
     end
-    return "EQUAL"
+    return "EQL"
 end
 
 --- Compares two supported numeric sides without rounding intermediate values.

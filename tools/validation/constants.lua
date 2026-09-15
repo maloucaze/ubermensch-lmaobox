@@ -4,7 +4,7 @@
 local Constants = {}
 
 Constants.FORMAT_VERSION = 1
-Constants.RECORDER_VERSION = "1.2.0"
+Constants.RECORDER_VERSION = "1.3.0"
 Constants.PREFIX = "[Ubermensch Validation]"
 Constants.DIRECTORY = "ubermensch-validation"
 Constants.FILE_PREFIX = "ubermensch_validation"

@@ -10,17 +10,37 @@ local State = {}
 
 --- Creates a confirmed empty side for a complete authoritative roster.
 -- @param team Team identifier represented by the side.
--- @return table Display side representing `NO MEDIC` at zero percent.
+-- @return table Display side representing `NO MED` at zero percent.
 local function missing_side(team)
     return {
         team = team,
         missing = true,
-        family = "NO MEDIC",
+        family = "NO MED",
         charge = 0,
         charge_source = "missing",
         family_source = "missing",
         deployment_source = "missing",
         deployed = false,
+    }
+end
+
+--- Creates the compact fallback for a retained supported Medic who is dead.
+-- @param candidate Selected dead-Medic identity and retained family.
+-- @param team Team identifier represented by the side.
+-- @return table Display side representing authoritative death.
+local function dead_side(candidate, team)
+    return {
+        userid = candidate.userid,
+        entity_index = candidate.entity_index,
+        team = team,
+        dead = true,
+        family = "DEAD MED",
+        charge = 0,
+        charge_source = "dead",
+        family_source = "dead",
+        deployment_source = "dead",
+        deployed = false,
+        died_at = candidate.died_at,
     }
 end
 
@@ -41,12 +61,16 @@ end
 
 --- Resolves a candidate or absence into a display side.
 -- @param candidate Selected candidate, if any.
+-- @param dead_candidate Selected dead-Medic fallback, if any.
 -- @param team Team identifier.
 -- @param roster_available Whether authoritative roster absence is provable.
 -- @return table Display side.
-local function resolve_side(candidate, team, roster_available)
+local function resolve_side(candidate, dead_candidate, team, roster_available)
     if candidate ~= nil then
         return candidate
+    end
+    if dead_candidate ~= nil then
+        return dead_side(dead_candidate, team)
     end
     if roster_available then
         return missing_side(team)
@@ -55,11 +79,11 @@ local function resolve_side(candidate, team, roster_available)
 end
 
 --- Determines whether a side contains retained, approximate, or unknown data.
--- Confirmed `NO MEDIC` is exact and therefore does not request a warning.
+-- Confirmed absence and death are exact and do not request a warning.
 -- @param side Resolved display side.
 -- @return boolean Whether the warning border is required for this side.
 local function side_warns(side)
-    if side.missing then
+    if side.missing or side.dead then
         return false
     end
     return side.family_source ~= "current"
@@ -72,22 +96,24 @@ end
 -- @param enemy_side Enemy-team display side.
 -- @return table|nil Comparison, or nil when required data is unknown.
 local function resolve_comparison(local_side, enemy_side)
-    if local_side.missing and enemy_side.missing then
+    local local_unavailable = local_side.missing or local_side.dead
+    local enemy_unavailable = enemy_side.missing or enemy_side.dead
+    if local_unavailable and enemy_unavailable then
         return {
-            status = "EQUAL",
+            status = "EQL",
             charge_difference = 0,
             time_difference = nil,
         }
     end
 
-    if local_side.missing or enemy_side.missing then
-        local known = local_side.missing and enemy_side or local_side
+    if local_unavailable or enemy_unavailable then
+        local known = local_unavailable and enemy_side or local_side
         if not Weapons.is_supported(known.family) or known.charge == nil then
             return nil
         end
         local difference = local_side.charge - enemy_side.charge
         return {
-            status = local_side.missing and "DIS" or "ADV",
+            status = local_unavailable and "DIS" or "ADV",
             charge_difference = difference,
             time_difference = nil,
         }
@@ -134,24 +160,48 @@ function State.resolve(tracking, prior_selection)
         prior_selection[enemy_team]
     )
 
+    local dead_candidates = tracking.dead_candidates or {}
+    local local_dead
+    if local_candidate == nil then
+        local_dead = Selection.dead_for_team(
+            dead_candidates,
+            local_team,
+            prior_selection[local_team]
+        )
+    end
+    local enemy_dead
+    if enemy_candidate == nil then
+        enemy_dead = Selection.dead_for_team(
+            dead_candidates,
+            enemy_team,
+            prior_selection[enemy_team]
+        )
+    end
+
     if local_candidate ~= nil then
         prior_selection[local_team] = local_candidate.userid
+    elseif local_dead ~= nil then
+        prior_selection[local_team] = local_dead.userid
     elseif tracking.roster_available then
         prior_selection[local_team] = nil
     end
     if enemy_candidate ~= nil then
         prior_selection[enemy_team] = enemy_candidate.userid
+    elseif enemy_dead ~= nil then
+        prior_selection[enemy_team] = enemy_dead.userid
     elseif tracking.roster_available then
         prior_selection[enemy_team] = nil
     end
 
     local local_side = resolve_side(
         local_candidate,
+        local_dead,
         local_team,
         tracking.roster_available
     )
     local enemy_side = resolve_side(
         enemy_candidate,
+        enemy_dead,
         enemy_team,
         tracking.roster_available
     )

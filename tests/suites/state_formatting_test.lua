@@ -28,9 +28,29 @@ Harness.test("exact baseline formatting", function()
     }
     local prepared = Formatting.prepare(model)
     Harness.same_table(prepared.lines, {
-        "RED 75% (KRITZ)",
-        "BLU 50% (STOCK)",
-        "ADV | +25% | +12.0s",
+        "RED |  75% |   8s | KRITZ",
+        "BLU |  50% |  20s | STOCK",
+        "ADV | +25% | +12s",
+    })
+end)
+
+Harness.test("equal columns align exactly with whole numbers", function()
+    local local_side = Fixtures.side(2, "STOCK", 50, "current", false)
+    local enemy_side = Fixtures.side(3, "STOCK", 50, "current", false)
+    local prepared = Formatting.prepare({
+        local_side = local_side,
+        enemy_side = enemy_side,
+        comparison = {
+            status = "EQL",
+            charge_difference = 0,
+            time_difference = 0,
+        },
+        warning = false,
+    })
+    Harness.same_table(prepared.lines, {
+        "RED | 50% | 20s | STOCK",
+        "BLU | 50% | 20s | STOCK",
+        "EQL |  0% |  0s",
     })
 end)
 
@@ -43,8 +63,8 @@ Harness.test("BLU local side is listed first", function()
         comparison = { status = "DIS", charge_difference = -25, time_difference = -12 },
         warning = false,
     })
-    Harness.equal(prepared.lines[1], "BLU 50% (STOCK)")
-    Harness.equal(prepared.lines[2], "RED 75% (KRITZ)")
+    Harness.equal(prepared.lines[1], "BLU |  50% |  20s | STOCK")
+    Harness.equal(prepared.lines[2], "RED |  75% |   8s | KRITZ")
 end)
 
 Harness.test("missing side formatting omits time", function()
@@ -53,9 +73,9 @@ Harness.test("missing side formatting omits time", function()
     }), {})
     local prepared = Formatting.prepare(model)
     Harness.same_table(prepared.lines, {
-        "RED 75% (STOCK)",
-        "BLU 0% (NO MEDIC)",
-        "ADV | +75%",
+        "RED |  75% | 10s | STOCK",
+        "BLU | NO MED",
+        "ADV | +75% |   -",
     })
     Harness.falsy(prepared.warning)
 end)
@@ -66,15 +86,28 @@ Harness.test("approximate formatting and border", function()
     local prepared = Formatting.prepare({
         local_side = local_side,
         enemy_side = enemy,
-        comparison = { status = "EQUAL", charge_difference = 15, time_difference = 3.75 },
+        comparison = { status = "EQL", charge_difference = 15, time_difference = 3.75 },
         warning = true,
     })
     Harness.same_table(prepared.lines, {
-        "RED ~88% (STOCK)",
-        "BLU 73% (KRITZ)",
-        "EQUAL | ~+15% | ~+3.8s",
+        "RED |  ~88% |  ~5s | STOCK",
+        "BLU |   73% |   9s | KRITZ",
+        "EQL | ~+15% | ~+4s",
     })
     Harness.truthy(prepared.warning)
+end)
+
+Harness.test("resource readiness is marked approximate", function()
+    local side = Fixtures.side(2, "STOCK", 50, "resource", false)
+    Harness.equal(
+        Formatting.side_line(side),
+        "RED | ~50% | ~20s | STOCK"
+    )
+end)
+
+Harness.test("deployment does not change readiness text", function()
+    local side = Fixtures.side(2, "STOCK", 50, "current", true)
+    Harness.equal(Formatting.side_line(side), "RED | 50% | 20s | STOCK")
 end)
 
 Harness.test("retained family marks otherwise current differences approximate", function()
@@ -87,7 +120,8 @@ Harness.test("retained family marks otherwise current differences approximate", 
         comparison = { status = "ADV", charge_difference = 30, time_difference = 12 },
         warning = true,
     })
-    Harness.equal(prepared.lines[3], "ADV | ~+30% | ~+12.0s")
+    Harness.equal(prepared.lines[1], "RED |   80% |   ~8s | STOCK")
+    Harness.equal(prepared.lines[3], "ADV | ~+30% | ~+12s")
 end)
 
 Harness.test("genuinely unknown fields produce dash", function()
@@ -97,8 +131,8 @@ Harness.test("genuinely unknown fields produce dash", function()
     }), {})
     local prepared = Formatting.prepare(model)
     Harness.same_table(prepared.lines, {
-        "RED ?% (UNKNOWN)",
-        "BLU ?% (UNKNOWN)",
+        "RED | ?% | - | UNKNOWN",
+        "BLU | ?% | - | UNKNOWN",
         "-",
     })
     Harness.truthy(prepared.warning)
@@ -106,8 +140,131 @@ end)
 
 Harness.test("two confirmed missing sides compare equal", function()
     local prepared = Formatting.prepare(State.resolve(tracking({}), {}))
-    Harness.equal(prepared.lines[3], "EQUAL | 0%")
+    Harness.same_table(prepared.lines, {
+        "RED | NO MED",
+        "BLU | NO MED",
+        "EQL | 0% | -",
+    })
     Harness.falsy(prepared.warning)
+end)
+
+Harness.test("dead Medic is compact gray and does not warn", function()
+    local dead = {
+        userid = 20,
+        entity_index = 2,
+        team = 2,
+        alive = false,
+        dead = true,
+        family = "STOCK",
+        died_at = 11,
+    }
+    local model = State.resolve(tracking({}, {
+        dead_candidates = { dead },
+    }), {})
+    local prepared = Formatting.prepare(model)
+    Harness.equal(prepared.lines[1], "RED | DEAD MED")
+    Harness.equal(prepared.lines[2], "BLU | NO MED")
+    Harness.equal(prepared.lines[3], "EQL | 0% | -")
+    Harness.same_table(prepared.colors[1], Constants.COLORS.unavailable)
+    Harness.same_table(prepared.colors[2], Constants.COLORS.unavailable)
+    Harness.falsy(prepared.warning)
+end)
+
+Harness.test("living unknown Medic outranks a dead supported Medic", function()
+    local alive = Fixtures.side(2, nil, nil, "unknown", false, "unknown")
+    alive.userid = 21
+    local dead = {
+        userid = 20,
+        entity_index = 2,
+        team = 2,
+        alive = false,
+        dead = true,
+        family = "STOCK",
+        died_at = 11,
+    }
+    local model = State.resolve(tracking({ alive }, {
+        dead_candidates = { dead },
+    }), {})
+    Harness.equal(model.local_side.userid, 21)
+    Harness.falsy(model.local_side.dead)
+end)
+
+Harness.test("dead side compares as fixed zero without a time difference", function()
+    local alive = Fixtures.side(2, "STOCK", 50, "current", false)
+    local dead = {
+        userid = 30,
+        entity_index = 3,
+        team = 3,
+        alive = false,
+        dead = true,
+        family = "KRITZ",
+        died_at = 11,
+    }
+    local model = State.resolve(tracking({ alive }, {
+        dead_candidates = { dead },
+    }), {})
+    Harness.equal(model.comparison.status, "ADV")
+    Harness.equal(model.comparison.charge_difference, 50)
+    Harness.is_nil(model.comparison.time_difference)
+    Harness.equal(Formatting.comparison_line(model), "ADV | +50% | -")
+end)
+
+Harness.test("team readiness uses whole-second half-away rounding", function()
+    local side = Fixtures.side(2, "STOCK", 48.75, "current", false)
+    Harness.equal(Formatting.side_line(side), "RED | 49% | 21s | STOCK")
+end)
+
+Harness.test("cached lines invalidate when only displayed readiness changes", function()
+    local local_side = Fixtures.side(2, "STOCK", 48.7, "current", false)
+    local model = {
+        local_side = local_side,
+        enemy_side = Fixtures.side(3, "STOCK", 50, "current", false),
+        comparison = {
+            status = "EQL",
+            charge_difference = -1.3,
+            time_difference = -0.52,
+        },
+        warning = false,
+    }
+    local prepared = Formatting.prepare(model)
+    Harness.equal(prepared.lines[1], "RED | 49% | 21s | STOCK")
+    local_side.charge = 49.2
+    Formatting.prepare(model, prepared)
+    Harness.equal(prepared.lines[1], "RED | 49% | 20s | STOCK")
+end)
+
+Harness.test("a wider numeric token realigns every normal line", function()
+    local local_side = Fixtures.side(2, "STOCK", 99, "current", false)
+    local enemy_side = Fixtures.side(3, "STOCK", 99, "current", false)
+    local model = {
+        local_side = local_side,
+        enemy_side = enemy_side,
+        comparison = {
+            status = "EQL",
+            charge_difference = 0,
+            time_difference = 0,
+        },
+        warning = false,
+    }
+    local prepared = Formatting.prepare(model)
+    Harness.equal(prepared.lines[2], "BLU | 99% | 0s | STOCK")
+    local_side.charge = 100
+    Formatting.prepare(model, prepared)
+    Harness.equal(prepared.lines[2], "BLU |  99% | 0s | STOCK")
+end)
+
+Harness.test("partial side information cannot fabricate readiness", function()
+    local charge_only = Fixtures.side(2, nil, 63, "current", false)
+    local family_only = Fixtures.side(3, "STOCK", nil, "unknown", false)
+    family_only.family_source = "retained"
+    Harness.equal(
+        Formatting.side_line(charge_only),
+        "RED | 63% | - | UNKNOWN"
+    )
+    Harness.equal(
+        Formatting.side_line(family_only),
+        "BLU | ?% | - | STOCK"
+    )
 end)
 
 Harness.test("self Medic ignores other allied candidates", function()
@@ -156,7 +313,7 @@ Harness.test("supported zero still wins known-side missing precedence", function
         Fixtures.side(2, "STOCK", 0, "current", false),
     }), {})
     Harness.equal(model.comparison.status, "ADV")
-    Harness.equal(Formatting.comparison_line(model), "ADV | 0%")
+    Harness.equal(Formatting.comparison_line(model), "ADV | 0% | -")
 end)
 
 Harness.test("last local team preserves ordering during identity loss", function()
@@ -167,14 +324,17 @@ Harness.test("last local team preserves ordering during identity loss", function
     lost.local_team = nil
     local model = State.resolve(lost, {})
     local prepared = Formatting.prepare(model)
-    Harness.equal(prepared.lines[1], "BLU ?% (UNKNOWN)")
-    Harness.equal(prepared.lines[2], "RED ?% (UNKNOWN)")
+    Harness.equal(prepared.lines[1], "BLU | ?% | - | UNKNOWN")
+    Harness.equal(prepared.lines[2], "RED | ?% | - | UNKNOWN")
     Harness.equal(prepared.lines[3], "-")
 end)
 
 Harness.test("failed roster never proves no Medic", function()
     local model = State.resolve(tracking({}, { roster_available = false }), {})
-    Harness.equal(Formatting.side_line(model.local_side), "RED ?% (UNKNOWN)")
+    Harness.equal(
+        Formatting.side_line(model.local_side),
+        "RED | ?% | - | UNKNOWN"
+    )
     Harness.equal(Formatting.comparison_line(model), "-")
     Harness.truthy(model.warning)
 end)
@@ -186,7 +346,7 @@ Harness.test("colors obey deployment readiness and status precedence", function(
     Harness.same_table(Formatting.side_color(Fixtures.side(3, "STOCK", 100, "estimate", false)), Constants.COLORS.ready)
     Harness.same_table(Formatting.comparison_color({ status = "ADV" }), Constants.COLORS.advantage)
     Harness.same_table(Formatting.comparison_color({ status = "DIS" }), Constants.COLORS.disadvantage)
-    Harness.same_table(Formatting.comparison_color({ status = "EQUAL" }), Constants.COLORS.text)
+    Harness.same_table(Formatting.comparison_color({ status = "EQL" }), Constants.COLORS.text)
     Harness.same_table(Formatting.comparison_color(nil), Constants.COLORS.text)
 end)
 
@@ -198,6 +358,7 @@ Harness.test("all fixed RGBA values match the specification", function()
     Harness.same_table(Constants.COLORS.red_deployed, { 255, 80, 80, 255 })
     Harness.same_table(Constants.COLORS.blu_deployed, { 80, 160, 255, 255 })
     Harness.same_table(Constants.COLORS.warning, { 170, 140, 0, 255 })
+    Harness.same_table(Constants.COLORS.unavailable, { 170, 170, 170, 255 })
     Harness.same_table(Constants.COLORS.background, { 15, 15, 18, 170 })
 end)
 
@@ -205,9 +366,9 @@ Harness.test("formatting is ASCII and never emits interval states", function()
     local line = Formatting.comparison_line({
         local_side = Fixtures.side(2, "STOCK", 50, "current", false),
         enemy_side = Fixtures.side(3, "STOCK", 50, "current", false),
-        comparison = { status = "EQUAL", charge_difference = -0.01, time_difference = -0.01 },
+        comparison = { status = "EQL", charge_difference = -0.01, time_difference = -0.01 },
     })
-    Harness.equal(line, "EQUAL | 0% | 0.0s")
+    Harness.equal(line, "EQL | 0% | 0s")
     Harness.falsy(string.find(line, "UNCERTAIN", 1, true))
     Harness.falsy(string.find(line, "[", 1, true))
     for i = 1, #line do

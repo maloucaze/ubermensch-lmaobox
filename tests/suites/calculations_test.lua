@@ -3,12 +3,12 @@ local Comparison = require("ubermensch.comparison")
 local Numbers = require("ubermensch.numbers")
 
 local vectors = {
-    { "STOCK", 50, "STOCK", 40, 20, 24, 4, 10, "EQUAL" },
+    { "STOCK", 50, "STOCK", 40, 20, 24, 4, 10, "EQL" },
     { "STOCK", 80, "STOCK", 50, 8, 20, 12, 30, "ADV" },
     { "STOCK", 50, "STOCK", 80, 20, 8, -12, -30, "DIS" },
-    { "KRITZ", 50, "KRITZ", 40, 16, 19.2, 3.2, 10, "EQUAL" },
-    { "KRITZ", 100, "KRITZ", 100, 0, 0, 0, 0, "EQUAL" },
-    { "STOCK", 90, "KRITZ", 65, 4, 11.2, 7.2, 25, "EQUAL" },
+    { "KRITZ", 50, "KRITZ", 40, 16, 19.2, 3.2, 10, "EQL" },
+    { "KRITZ", 100, "KRITZ", 100, 0, 0, 0, 0, "EQL" },
+    { "STOCK", 90, "KRITZ", 65, 4, 11.2, 7.2, 25, "EQL" },
     { "STOCK", 100, "KRITZ", 65, 0, 11.2, 11.2, 35, "ADV" },
     { "STOCK", 50, "KRITZ", 90, 20, 3.2, -16.8, -40, "DIS" },
 }
@@ -29,8 +29,8 @@ for i = 1, #vectors do
 end
 
 Harness.test("classification boundaries are inclusive", function()
-    Harness.equal(Comparison.classify(-10), "EQUAL")
-    Harness.equal(Comparison.classify(10), "EQUAL")
+    Harness.equal(Comparison.classify(-10), "EQL")
+    Harness.equal(Comparison.classify(10), "EQL")
     Harness.equal(Comparison.classify(-10.000001), "DIS")
     Harness.equal(Comparison.classify(10.000001), "ADV")
 end)

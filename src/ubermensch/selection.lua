@@ -86,7 +86,7 @@ end
 --- Selects one eligible Medic in O(P) time without sorting.
 -- Supported candidates with numeric charge outrank unidentified or charge-less
 -- fallbacks. The fallback exists so incomplete field reads do not falsely imply
--- `NO MEDIC` when the roster still contains an eligible Medic.
+-- `NO MED` when the roster still contains an eligible Medic.
 -- @param candidates Plain resolved candidates for one team.
 -- @param team Numeric team identifier.
 -- @param prior_userid Previously selected user ID for stable ties.
@@ -123,6 +123,40 @@ function Selection.for_team(candidates, team, prior_userid)
         end
     end
     return best_numeric or best_fallback
+end
+
+--- Selects the dead-Medic fallback for a team in one linear pass.
+-- A previously selected identity remains stable; otherwise the most recent
+-- authoritative death wins, with entity index providing deterministic ties.
+-- @param candidates Retained dead supported-Medic candidates.
+-- @param team Numeric team identifier.
+-- @param prior_userid Previously selected server user ID, if any.
+-- @return table|nil Preferred dead candidate, or nil when none qualifies.
+function Selection.dead_for_team(candidates, team, prior_userid)
+    local best
+    for i = 1, #candidates do
+        local candidate = candidates[i]
+        if candidate.team == team and candidate.dead == true
+            and candidate.unsupported ~= true
+            and Weapons.is_supported(candidate.family)
+        then
+            if candidate.userid == prior_userid then
+                return candidate
+            end
+            if best == nil or (candidate.died_at or -math.huge)
+                > (best.died_at or -math.huge)
+            then
+                best = candidate
+            elseif (candidate.died_at or -math.huge)
+                == (best.died_at or -math.huge)
+                and (candidate.entity_index or math.huge)
+                    < (best.entity_index or math.huge)
+            then
+                best = candidate
+            end
+        end
+    end
+    return best
 end
 
 return Selection

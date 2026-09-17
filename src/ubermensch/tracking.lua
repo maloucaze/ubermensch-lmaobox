@@ -72,6 +72,7 @@ local function clear_gameplay(record, clear_family)
     record.deployed = nil
     record.deployment_source = nil
     record.deployment_deadline = nil
+    record.pending_deployment_time = nil
     record.frame_charge = nil
     record.frame_charge_source = nil
     record.frame_deployed = nil
@@ -82,6 +83,23 @@ local function clear_gameplay(record, clear_family)
         record.unsupported = nil
         record.frame_family = nil
         record.frame_family_source = nil
+    end
+end
+
+--- Clears team-incompatible gameplay while preserving an existing Medic death.
+-- A dead Medic still exists after switching teams, but its old weapon family
+-- and charge cannot follow it to the new team.
+-- @param record Retained player record.
+-- @param next_class Authoritative next class, or nil to retain current class.
+-- @param next_alive Authoritative next alive state, or nil to retain current state.
+local function clear_for_team_change(record, next_class, next_alive)
+    local died_at = record.died_at
+    local medic = (next_class or record.class) == Constants.MEDIC_CLASS
+    local dead = next_alive == false
+        or (next_alive == nil and record.alive == false)
+    clear_gameplay(record, true)
+    if medic and dead then
+        record.died_at = died_at
     end
 end
 
@@ -251,14 +269,13 @@ local function apply_event(tracker, event, now)
         record.deployment_source = "event"
         record.deployment_deadline = nil
     elseif name == "player_chargedeployed" then
-        set_anchor(record, 100, event.time or now, true, "event")
-        record.deployed = true
-        record.deployment_source = "event"
-        record.deployment_deadline = (event.time or now)
-            + 100 / Constants.DEPLOY_DRAIN_RATE
+        -- The event has no family field. Defer its meter semantics until an
+        -- already retained or newly overlaid family can identify whether this
+        -- is a conventional full-charge deployment or a Vaccinator segment.
+        record.pending_deployment_time = event.time or now
     elseif name == "player_team" then
         if record.team ~= event.team then
-            clear_gameplay(record, true)
+            clear_for_team_change(record, nil, nil)
         end
         record.team = event.team
     elseif name == "player_changeclass" then
@@ -308,7 +325,11 @@ local function apply_resource_lifecycle(tracker, players, now)
                 if record.team ~= nil and player.team ~= nil
                     and record.team ~= player.team
                 then
-                    clear_gameplay(record, true)
+                    clear_for_team_change(
+                        record,
+                        player.class,
+                        player.alive
+                    )
                 end
                 if record.class ~= nil and player.class ~= nil
                     and record.class ~= player.class
@@ -359,7 +380,11 @@ local function apply_current_overlay(tracker, players, now)
                 record.is_local = player.is_local == true
                 if player.current_team ~= nil then
                     if record.team ~= nil and record.team ~= player.current_team then
-                        clear_gameplay(record, true)
+                        clear_for_team_change(
+                            record,
+                            player.current_class,
+                            player.current_alive
+                        )
                     end
                     record.team = player.current_team
                 end
@@ -387,7 +412,14 @@ local function apply_current_overlay(tracker, players, now)
                         record.unsupported = true
                         record.frame_family = "UNSUPPORTED"
                         record.frame_family_source = "current"
-                    elseif Weapons.is_supported(player.current_family) then
+                    elseif Weapons.is_displayable(player.current_family) then
+                        if record.family ~= nil
+                            and record.family ~= player.current_family
+                        then
+                            local pending = record.pending_deployment_time
+                            clear_gameplay(record, false)
+                            record.pending_deployment_time = pending
+                        end
                         record.unsupported = false
                         record.family = player.current_family
                         record.frame_family = player.current_family
@@ -412,6 +444,32 @@ local function apply_current_overlay(tracker, players, now)
     end
 end
 
+--- Applies deferred deployment semantics once a current or retained family is known.
+-- Conventional families establish the existing 100% eight-second deployment.
+-- Vaccinator events are intentionally ignored by limited support because they
+-- reveal neither a comparable meter nor a continuing `m_bChargeRelease` state.
+-- @param tracker Tracking store.
+local function resolve_pending_deployments(tracker)
+    for _, record in pairs(tracker.records) do
+        local event_time = record.pending_deployment_time
+        if event_time ~= nil then
+            local family = record.frame_family or record.family
+            if Weapons.is_supported(family) then
+                set_anchor(record, 100, event_time, true, "event")
+                if record.frame_deployed == nil then
+                    record.deployed = true
+                    record.deployment_source = "event"
+                    record.deployment_deadline = event_time
+                        + 100 / Constants.DEPLOY_DRAIN_RATE
+                end
+                record.pending_deployment_time = nil
+            elseif family == "VACC" or record.unsupported == true then
+                record.pending_deployment_time = nil
+            end
+        end
+    end
+end
+
 --- Establishes current or resource charge anchors after all field overlays.
 -- Current charge wins field-by-field and never waits for current family or
 -- deployment. Resource charge is used only when the exact field is unavailable.
@@ -424,7 +482,7 @@ local function apply_charge_sources(tracker, players, now)
         local key = record_key(player.userid, player.entity_index)
         local record = key ~= nil and tracker.records[key] or nil
         if record ~= nil and record.class == Constants.MEDIC_CLASS
-            and record.alive == true and record.unsupported ~= true
+            and record.alive == true
         then
             local charge = record.frame_charge
             local source = record.frame_charge_source
@@ -512,6 +570,11 @@ end
 -- @return table Candidate containing independently sourced fields.
 local function resolve_candidate(record, now, phase_history)
     local family = record.frame_family or record.family
+    local unsupported = record.unsupported == true
+        or record.frame_family == "UNSUPPORTED"
+    if unsupported then
+        family = nil
+    end
     local family_source = record.frame_family_source
         or (record.family ~= nil and "retained" or "unknown")
     local charge = record.frame_charge
@@ -556,8 +619,7 @@ local function resolve_candidate(record, now, phase_history)
         charge_source = charge_source or "unknown",
         deployed = deployed,
         deployment_source = deployment_source,
-        unsupported = record.unsupported == true
-            or record.frame_family == "UNSUPPORTED",
+        unsupported = unsupported,
     }
 end
 
@@ -605,6 +667,7 @@ function Tracking.reconcile(tracker, snapshot)
 
     local present = apply_resource_lifecycle(tracker, snapshot.players, now)
     apply_current_overlay(tracker, snapshot.players, now)
+    resolve_pending_deployments(tracker)
     apply_charge_sources(tracker, snapshot.players, now)
 
     if snapshot.roster_available then
@@ -667,10 +730,7 @@ function Tracking.reconcile(tracker, snapshot)
                     local_class = record.class
                     local_alive = record.alive
                 end
-            elseif record.alive == false
-                and record.unsupported ~= true
-                and Weapons.is_supported(record.family)
-            then
+            elseif record.alive == false then
                 dead_candidates[#dead_candidates + 1] = {
                     userid = record.userid,
                     entity_index = record.entity_index,
@@ -680,6 +740,7 @@ function Tracking.reconcile(tracker, snapshot)
                     dead = true,
                     family = record.family,
                     family_source = "retained",
+                    unsupported = record.unsupported == true,
                     died_at = record.died_at,
                 }
             end

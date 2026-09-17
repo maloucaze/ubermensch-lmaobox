@@ -294,7 +294,7 @@ end
 --- Reads an item family using the nested schema path and compatibility fallback.
 -- @param weapon Transient Medi Gun entity.
 -- @param diagnostic Optional mutable validation evidence table.
--- @return string|nil Supported or confirmed unsupported family observation.
+-- @return string|nil Recognized family, `UNSUPPORTED`, or nil on read failure.
 local function read_family(weapon, diagnostic)
     local ok, item = Safe.method(
         weapon,

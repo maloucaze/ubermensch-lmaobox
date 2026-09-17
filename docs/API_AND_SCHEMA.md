@@ -1,6 +1,6 @@
 # API and item-schema evidence
 
-Documentary verification was most recently reviewed on 2026-09-14.
+Documentary verification was most recently reviewed on 2026-09-16.
 
 ## LMAOBox API boundary
 
@@ -149,8 +149,10 @@ charge, or deployment fields.
 Valve's Medi Gun source documents the 40-second Stock base build, weapon-specific
 charge-rate attributes, threefold setup building, eight-second base deployment,
 and flashing behavior. Product estimation deliberately uses only the fixed
-Stock/Kritz ideal build rates, setup multiplier, and standard eight-second
-linear drain. It does not model flashing, target health, multiple healers, melee
+Stock/Kritz/Quick-Fix ideal build rates, setup multiplier, and standard
+eight-second linear drain. Quick-Fix definition 411 carries the verified
+`mult_medigun_uberchargerate 1.1` schema attribute, producing 2.75 percentage
+points per second from Stock's 2.5 base. It does not model flashing, target health, multiple healers, melee
 gains, custom attributes, or a probability distribution.
 
 Source:
@@ -164,10 +166,12 @@ The FireGameEvent callback supplies server events to Lua. Ubermensch consumes
 only lifecycle/inventory events and `player_chargedeployed`. The deployment
 event includes `userid` but no family or precise draining percentage. The event
 is stored as primitives and applied only to the record with the same server user
-id; entity index is not allowed to redirect it to another player. It can anchor
-100% before family identification, but comparison remains unavailable until a
-supported current or last-known family exists. Current weapon fields always
-override event-derived fields independently.
+id; entity index is not allowed to redirect it to another player. Because the
+event has no family, conventional 100%/eight-second semantics remain pending
+until that same record is known as Stock, Kritzkrieg, or Quick-Fix. Vaccinator
+or unknown/custom identification discards the pending event rather than
+inventing segment state. Current weapon fields always override event-derived
+fields independently.
 
 The current client documentation says all game events are already allowed and
 that `client.AllowListener()` is deprecated and does nothing. The runtime
@@ -232,8 +236,9 @@ SHA-256: 4D1F15B63E63E3E897552CFB8042CCCB99D2E233A0C8D8AFD8734A3EA49D08DA
 
 Definitions inheriting `weapon_medigun` or `paintkit_weapon_medigun` are
 stock-equivalent. Definitions inheriting `weapon_kritzkrieg` are
-Kritzkrieg-equivalent. Other direct `tf_weapon_medigun` mechanics were inspected
-separately.
+Kritzkrieg-equivalent. Quick-Fix and Vaccinator are direct
+`tf_weapon_medigun` definitions whose separate mechanics were inspected
+explicitly.
 
 ### Stock-equivalent definition indexes
 
@@ -255,15 +260,27 @@ Festivizer state do not change the definition index.
 
 All current Kritzkrieg qualities and cosmetic states use definition 35.
 
-### Explicitly unsupported
+### Quick-Fix definition index
 
 ```text
-411 = QUICK-FIX
-998 = VACCINATOR
+411
 ```
 
-Any other Medi Gun definition is unsupported and may leave a never-observed
-roster Medic unknown only when no supported current or last-known family exists;
-it never receives Stock/Kritz math. Run
+Quick-Fix receives full readiness, comparison, standard-deployment, and ideal
+estimation support at 2.75 percentage points per second.
+
+### Vaccinator definition index
+
+```text
+998
+```
+
+Vaccinator is intentionally display-only. Its current or validated resource
+charge may be shown, ready yellow begins at the 25% segment threshold, and it
+has no time-to-ready, estimator, deployment color, or ADV/DIS/EQL comparison.
+
+Any other Medi Gun definition is unknown/custom. Its Medic remains a living or
+dead roster candidate so the HUD never falsely reports `NO MED`, but it receives
+no family-specific math. Run
 `tools/verify_item_schema.ps1` after TF2 item-schema changes and regenerate the
 bundle with `tools/build_runtime.ps1 -Deploy`.

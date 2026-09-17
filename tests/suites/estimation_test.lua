@@ -19,6 +19,8 @@ local vectors = {
     { "KRITZ", 60, true, 4.8, 1, 0, false },
     { "STOCK", 100, true, 10, 1, 5, false },
     { "KRITZ", 100, true, 10, 1, 6.25, false },
+    { "QF", 50, false, 4, 1, 61, false },
+    { "QF", 100, true, 10, 1, 5.5, false },
 }
 
 for i = 1, #vectors do
@@ -81,6 +83,11 @@ Harness.test("invalid anchors and elapsed time fail closed", function()
         {}
     )
     Harness.is_nil(charge)
+end)
+
+Harness.test("display-only and unknown families are never estimated", function()
+    Harness.is_nil(estimate("VACC", 50, false, 4, 1))
+    Harness.is_nil(estimate("UNKNOWN", 50, false, 4, 1))
 end)
 
 Harness.test("repeated queries use the immutable original anchor", function()

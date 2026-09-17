@@ -1,19 +1,20 @@
 # Ubermensch LMAOBox - Behavioral Specification
 
-Version 2.2.1  
-Last updated: 2026-09-15
+Version 2.3.0
+Last updated: 2026-09-16
 
 ## 1. Product summary
 
 Ubermensch is a self-contained Lua HUD for Team Fortress 2 running under
-LMAOBox. It compares the selected Stock Medi Gun or Kritzkrieg on the local
-player's team with the selected eligible Medic on the opposing team.
+LMAOBox. It compares the selected Stock Medi Gun, Kritzkrieg, or Quick-Fix on
+the local player's team with the selected comparison-supported Medic on the
+opposing team. The Vaccinator has limited display-only support.
 Below the Uber comparison, it also reports the current alive-player counts in
 local-team-first order without classifying their tactical significance.
 
 When the local player is an alive Medic, the local side is that player alone.
-Otherwise, including while dead, the script selects the relevant eligible
-Medic independently on both teams. The local player's team is always displayed
+Otherwise, including while dead, the script selects the relevant Medic
+independently on both teams. The local player's team is always displayed
 first.
 
 The widget prioritizes current information whenever it is readable. Global
@@ -31,7 +32,8 @@ illustrate these rules and do not override them.
 
 ### 3.1 Included
 
-- Stock Medi Gun and Kritzkrieg item families only.
+- Full Stock Medi Gun, Kritzkrieg, and Quick-Fix comparison support.
+- Display-only Vaccinator family and charge support.
 - Current local, allied, and enemy charge and deployment observations when readable.
 - Global RED/BLU roster, class, alive, and user-id data from player resources.
 - Validated global player-resource charge samples.
@@ -45,7 +47,8 @@ illustrate these rules and do not override them.
 
 ### 3.2 Excluded
 
-- Quick-Fix, Vaccinator, or unknown/custom Medi Gun comparison math.
+- Vaccinator readiness, comparison math, estimation, and deployment display.
+- Unknown/custom Medi Gun readiness, comparison math, and estimation.
 - Tactical valuation of invulnerability versus critical hits.
 - Mann vs. Machine and nonstandard playable teams.
 - Modified weapon-balance attributes or server-specific charge rates.
@@ -58,21 +61,23 @@ illustrate these rules and do not override them.
 
 ## 4. Terms and data certainty
 
-### 4.1 Eligible Medic
+### 4.1 Medic candidates and support levels
 
-An eligible Medic is alive, is actually class Medic, and has a supported Stock
-or Kritzkrieg-family secondary. Disguised Spies are not Medics. Dead Medics and
-unsupported Medi Guns are ineligible.
+A living Medic candidate is alive and is actually class Medic. Disguised Spies
+are not Medics. Stock, Kritzkrieg, and Quick-Fix are comparison-supported
+families. Vaccinator is a recognized display-only family. An unidentified or
+custom Medi Gun remains an unknown-family fallback rather than making its
+Medic disappear.
 
-If a player is globally known to be an alive Medic but the secondary has never
-been identified, eligibility is unknown. That player MUST prevent a false
-`NO MED` result when no identified eligible Medic exists, but MUST NOT
-override a current identified Stock/Kritz candidate.
+Every globally known living Medic MUST prevent a false `NO MED`. A recognized
+comparison-supported candidate outranks Vaccinator and unknown/custom
+fallbacks in team mode as specified in Section 7. This support-tier ordering
+does not apply in self-Medic mode: an alive local Medic is always shown,
+including while using Quick-Fix, Vaccinator, or unknown/custom equipment.
 
-When no living candidate exists, a previously identified Stock/Kritz Medic who
-is authoritatively dead is represented by the separate `DEAD MED` fallback.
-This fallback is not eligible and MUST never outrank any living Medic,
-including one whose family or charge is still unknown.
+When no living Medic exists, any authoritatively dead Medic is represented by
+the separate `DEAD MED` fallback. This fallback MUST never outrank a living
+Medic, including one whose family or charge is still unknown.
 
 ### 4.2 Current field observations
 
@@ -132,7 +137,10 @@ The script consumes `player_spawn`, `player_death`, `player_changeclass`,
 `player_team`, `post_inventory_application`, and `player_chargedeployed`.
 Events update or invalidate tracked facts but never override a current field
 observation from the same network cycle. `player_chargedeployed` proves a 100%
-deployment at its event time; it does not identify an unseen Medi Gun family.
+conventional deployment at its event time only after that Medic is known to use
+Stock, Kritzkrieg, or Quick-Fix; it does not identify an unseen Medi Gun family.
+A pending event MUST be ignored if the Medic is identified as Vaccinator or
+unknown/custom because the event does not expose Vaccinator segment state.
 
 Every deployment event MUST be resolved through its `userid` and applied only to
 the matching Medic record. It MUST NOT be applied team-wide, to whichever Medic
@@ -150,7 +158,7 @@ A charge anchor is the most recent trustworthy charge fact for one Medic:
 
 - a current validated charge field;
 - a validated player-resource charge;
-- 100% at a correctly associated `player_chargedeployed` event; or
+- 100% at a correctly associated conventional `player_chargedeployed` event; or
 - 0% at spawn or post-inventory application while retaining a last-known family.
 
 An estimate is a single deterministic point calculated from that immutable
@@ -163,10 +171,12 @@ For an inactive charge:
 estimate = min(100, anchor charge + family rate * phase multiplier * elapsed)
 ```
 
-Stock's fixed rate is 2.5 percentage points per second and Kritzkrieg's is
-3.125. Preround/setup elapsed time uses multiplier 3; all other supported time
-uses multiplier 1. If an estimate crosses a known phase transition, the elapsed
-segments MUST be integrated with their respective multipliers.
+Stock's fixed rate is 2.5 percentage points per second, Kritzkrieg's is 3.125,
+and Quick-Fix's is 2.75. Preround/setup elapsed time uses multiplier 3; all
+other comparison-supported time uses multiplier 1. If an estimate crosses a
+known phase transition, the elapsed segments MUST be integrated with their
+respective multipliers. Vaccinator and unknown/custom charge MUST NOT be
+estimated; only a current or valid resource percentage may be displayed.
 
 For a deployed charge, the standard eight-second linear drain is used:
 
@@ -188,11 +198,13 @@ when the correction is large.
 
 ### 4.6 Missing, dead, and unknown
 
-`NO MED` means a complete current roster proves there is no eligible or retained
-dead supported Medic on that side. `DEAD MED` means no living candidate exists
-and a previously identified Stock/Kritz Medic is authoritatively dead. Both are
-fixed at 0% for comparison and omit time-to-ready. `DEAD MED` remains until that
-identity respawns, changes class or team, disconnects, or match state is reset.
+`NO MED` means a complete current roster proves there is no Medic-class player
+on that side. `DEAD MED` means at least one Medic is authoritatively dead and no
+living Medic exists, regardless of the dead Medic's known family. Both are
+fixed at 0% for comparison and omit time-to-ready. `DEAD MED` follows its
+identity through a team change while the player remains a Medic, and remains
+until that identity respawns, changes away from Medic, disconnects, or match
+state is reset.
 
 Unknown state is field-local: family is `UNKNOWN`
 only when that Medic has no current or last trustworthy family, and charge is
@@ -204,12 +216,13 @@ only when neither fact has ever been available,
 such as immediately after joining a match. Unknown charge is never fabricated as
 zero.
 
-Once a supported family and charge anchor exist, loss of visibility MUST produce
+Once a comparison-supported family and charge anchor exist, loss of visibility MUST produce
 a continuing estimate rather than `UNKNOWN`, regardless of its age. A verified
 family remains last-known through distance, spawn, and post-inventory
 application and is replaced immediately by contradictory current weapon data.
 Map change, disconnect, server-user-id change, confirmed non-Medic class, and
-confirmed unsupported weapon evidence clear incompatible retained facts.
+confirmed unknown/custom weapon evidence clear incompatible retained family and
+estimation facts without removing the living Medic candidate.
 
 ## 5. Comparison math
 
@@ -226,7 +239,7 @@ from the selected side's unrounded family and charge through this same formula,
 then rounded half away from zero to a whole number of seconds. It has no sign.
 Readiness is prefixed with `~` when its charge is resource-derived or estimated,
 or when its charge rate depends on a retained family. A confirmed `NO MED` or
-a side lacking either a supported family or numeric charge displays `-` instead
+a side lacking either a comparison-supported family or numeric charge displays `-` instead
 of fabricating readiness. Deployment does not select another readiness formula;
 the current or estimated charge continues through the formula above.
 
@@ -236,7 +249,7 @@ Positive differences favor the local side. Status uses full precision:
 - `DIS` when it is less than -10 seconds;
 - `EQL` from -10 through +10 seconds, inclusive.
 
-With exactly one known supported side and one unavailable side (`NO MED` or
+With exactly one known comparison-supported side and one unavailable side (`NO MED` or
 `DEAD MED`), the known side is `ADV` or `DIS`, charge difference is shown, and
 the time field is `-`. Two unavailable sides are `EQL | 0% | -`.
 
@@ -286,21 +299,23 @@ deployment, and roster/lifecycle fields:
    or resource charge is absent.
 8. Use `UNKNOWN` only when no current or last trustworthy information can produce
    the required family and number.
-9. Use `DEAD MED` only when no living candidate exists and retained supported
-   family plus authoritative lifecycle data proves a tracked Medic is dead.
-10. Use `NO MED` only when the global roster proves confirmed absence and no
-    dead-Medic fallback applies.
+9. Use `DEAD MED` only when no living Medic candidate exists and authoritative
+   lifecycle data proves at least one Medic is dead.
+10. Use `NO MED` only when the global roster proves no Medic-class player is on
+    that team and no dead-Medic fallback applies.
 
 Current fields always win. Resource values, events, retained facts, and
 estimates fill missing fields only and MUST NOT replace a current valid field.
 A read failure for one field cannot downgrade another valid field.
 
-Spawn and post-inventory events anchor charge at 0% and mark a supported family
+Spawn and post-inventory events anchor charge at 0% and mark a known family
 as last-known until re-observed. Team and class changes invalidate incompatible
 state. Death removes eligibility and clears charge/deployment while retaining a
-known supported family for `DEAD MED`; a subsequent spawn clears the fallback
-and establishes the new 0% anchor. Class/team change, disconnect, map/session
-reset, and identity replacement clear an incompatible dead fallback.
+known family when available; a subsequent spawn clears the fallback and
+establishes the new 0% anchor. Class change away from Medic, disconnect,
+map/session reset, and identity replacement clear an incompatible dead
+fallback. A team change moves the dead Medic fallback to the new team while the
+player remains class Medic and clears incompatible weapon/charge state.
 Disconnect, map change, local-team change, local-player change, and unload clear
 affected tracking state. Moving between self-Medic and team-comparison mode
 changes selection but MUST NOT erase still-valid records for other Medics.
@@ -318,22 +333,27 @@ If the local player is an alive Medic, that player is the local-side candidate
 and every other allied Medic is ignored. Otherwise, alive allied and enemy
 rosters are selected independently.
 
-Any supported candidate whose current or estimated deployment is active
+Any comparison-supported candidate whose current or estimated deployment is active
 outranks non-active candidates. Active candidates rank by greatest current or
 estimated remaining charge. Normal candidates rank by earliest current or
 estimated time-to-ready. Source freshness is a tie-breaker, not a reason to
 discard a useful estimate. Outside the tie tolerances, the better numerical
-candidate always wins. Within a 0.1-percentage-point active tie or 0.05-second
-normal tie, current data outranks resource data, which outranks an estimate;
-remaining ties retain the prior server user id, then use the lowest entity
+candidate always wins. Within a 0.05-second normal tie, family preference is
+`STOCK`, then `KRITZ`, then `QF`; current data then outranks resource data,
+which outranks an estimate. Within a 0.1-percentage-point active tie there is no
+family preference, and the same source freshness order applies directly.
+Remaining ties retain the prior server user id, then use the lowest entity
 index.
 
-An unidentified candidate is displayed only when no current, retained, or
-estimated supported living candidate exists in the relevant group. Unsupported
-candidates are excluded. If no living candidate exists, a retained dead
-supported Medic is selected: the previously selected server user id wins,
-otherwise the most recent authoritative death wins, then lowest entity index
-breaks an exact tie. Confirmed invalidation triggers immediate reselection. A
+Team-mode selection uses these support tiers in order: a numeric
+comparison-supported candidate; a comparison-supported candidate lacking a
+numeric charge; Vaccinator; unknown/custom. A higher tier always outranks a
+lower tier. Among Vaccinator candidates, the greatest known current/resource
+charge wins, followed by the ordinary freshness, prior-user-id, and entity-index
+tie-breaks. Unknown/custom Medics are never excluded from representation. If no
+living Medic exists, a retained dead Medic is selected: the previously selected
+server user id wins, otherwise the most recent authoritative death wins, then
+lowest entity index breaks an exact tie. Confirmed invalidation triggers immediate reselection. A
 deployment event updates only its matched Medic record; if that
 Medic becomes the highest-priority active candidate, normal selection may then
 select that Medic.
@@ -381,13 +401,13 @@ RED | DEAD MED
 ```
 
 The local player's team is first. Team labels are `RED` and `BLU`. Family
-labels are `STOCK`, `KRITZ`, or `UNKNOWN`; unavailable labels are `NO MED` and
+labels are `STOCK`, `KRITZ`, `QF`, `VACC`, or `UNKNOWN`; unavailable labels are `NO MED` and
 `DEAD MED`. Names and additional labels are never shown.
 
 Current percentages are whole numbers. Resource-derived and estimated percentages use
 `~N%`. No percentage interval is shown. Unknown charge uses `?%`. Team-line
 readiness uses whole seconds, uses `~Ns` when approximate, and otherwise uses
-`Ns`; unavailable readiness is exactly `-`. Percentage and time columns are
+`Ns`; Vaccinator and unavailable readiness are exactly `-`. Percentage and time columns are
 right-aligned to the widest displayed token across the normal team lines and
 comparison line. Compact `NO MED` and `DEAD MED` lines do not participate in
 column sizing. Each separator has exactly one padding space on each side;
@@ -424,14 +444,17 @@ Alive-player presentation uses separate fixed constants from the Uber palette:
 | Separator | `(170, 170, 170, 255)` |
 
 The entire third line uses its status color; `-` uses ordinary white. A team line
-uses its deployed team color while current or event/estimate-derived deployment
-is active, otherwise yellow when its current or estimated charge is 100%,
-otherwise white. `NO MED` and `DEAD MED` lines are gray.
+uses its deployed team color while current or event/estimate-derived conventional
+deployment is active, otherwise yellow when its current or estimated charge is
+100%, otherwise white. Vaccinator ignores deployment state and is yellow at
+25% or greater, otherwise white. `NO MED` and `DEAD MED` lines are gray.
 The fourth line always uses its independent ordinary-white team-count color.
 
 A one-pixel dark-yellow border MUST appear when any selected family, charge, or
-deployment input is approximate, estimated, retained, or unknown, or when roster
-authority is temporarily unavailable. Confirmed `NO MED` and `DEAD MED` states
+deployment input used by a comparison-supported side is approximate, estimated,
+retained, or unknown, or when roster authority is temporarily unavailable.
+Vaccinator deployment is outside the limited support contract and does not
+request a border. Confirmed `NO MED` and `DEAD MED` states
 do not cause a warning border by themselves. It MUST NOT appear when both sides
 are fully current or authoritatively unavailable.
 
@@ -441,6 +464,7 @@ between the three Uber lines, three pixels above and below the one-pixel
 separator, and the fixed background. The separator spans the content width
 inside the horizontal padding. The fixed-width face makes the padded numeric
 columns visually align. There is no animation, blinking, pulsing, or sound.
+
 
 ## 10. Positioning and persistence
 
@@ -463,7 +487,7 @@ load. Saves occur on drag completion and unload, not every frame.
 
 The widget is visible during ordinary pregame, startgame, preround/setup, and
 running states, including while the local player is dead or a side has no
-eligible Medic. It is hidden during team-win, restart, stalemate, game-over,
+Medic. It is hidden during team-win, restart, stalemate, game-over,
 bonus, between-round, MvM, absent-map, Source-console, and TF2-game-UI states.
 Scoreboard, chat, and the LMAOBox menu do not hide it. There is no screenshot
 special case.

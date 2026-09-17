@@ -49,7 +49,7 @@ Harness.test("validation runtime records real decisions events Draw and marker",
 
     local output = all_output(memory)
     Harness.contains(output, '"type":"session_start"')
-    Harness.contains(output, '"recorder_version":"1.4.1"')
+    Harness.contains(output, '"recorder_version":"1.5.0"')
     Harness.contains(output, '"type":"event"')
     Harness.contains(output, '"name":"player_chargedeployed"')
     Harness.contains(output, '"type":"decision"')

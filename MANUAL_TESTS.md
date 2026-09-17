@@ -1,7 +1,7 @@
 # Manual TF2/LMAOBox validation checklist
 
-Version 2.2.1  
-Last updated: 2026-09-15
+Version 2.3.0
+Last updated: 2026-09-16
 
 These checks require an actual TF2 session with current LMAOBox. Automated
 desktop checks do not satisfy them. Record only observations actually made.
@@ -36,8 +36,16 @@ desktop checks do not satisfy them. Record only observations actually made.
 - [ ] Alive BLU Medic appears on the first line as BLU.
 - [ ] Local Stock charge tracks the in-game meter continuously.
 - [ ] Local Kritz charge tracks the in-game meter continuously.
+- [ ] Local Quick-Fix charge, 100% readiness, and ordinary deployment track the
+      in-game meter continuously.
+- [ ] Local Vaccinator shows `VACC`, its current charge, no time-to-ready, and
+      no comparison status.
 - [ ] Nearby allied Stock and Kritz samples track while playing another class.
 - [ ] Nearby enemy Stock and Kritz samples track.
+- [ ] Nearby allied and enemy Quick-Fix samples track while playing another
+      class.
+- [ ] Nearby allied and enemy Vaccinator samples show current charge without a
+      time-to-ready or comparison.
 - [ ] A visible Medic's changing percentage updates continuously instead of
       remaining on a retained or estimated value.
 - [ ] Repeat the visible test while the Medi Gun is active and holstered, and
@@ -55,6 +63,8 @@ desktop checks do not satisfy them. Record only observations actually made.
 - [ ] BLU deployment turns the BLU line bright blue.
 - [ ] Both deployment colors can appear simultaneously.
 - [ ] Exact inactive 100% is yellow and 99% is white.
+- [ ] Vaccinator is white below 25%, yellow at 25% or greater, and never uses a
+      RED/BLU deployment color.
 
 ## Distance and player-resource reliability
 
@@ -86,6 +96,10 @@ Use a map/server where the tested Medic can move far enough to become dormant.
 - [ ] In an ordinary casual match with `mp_tournament 0`, an identified distant
       Stock Medic shows a continuously refreshed resource-derived `~N%` value.
 - [ ] Repeat for Kritzkrieg.
+- [ ] Repeat for Quick-Fix.
+- [ ] A valid distant Vaccinator resource percentage remains visible and
+      approximate, but is not advanced by an estimator after resource/current
+      data disappears.
 - [ ] Resource-derived approximate data retains the dark-yellow border.
 - [ ] Nearby exact data overrides the approximate resource value immediately.
 - [ ] Valid resource endpoints 0 and 100 are accepted, while an unavailable,
@@ -102,9 +116,13 @@ Use a map/server where the tested Medic can move far enough to become dormant.
       attributable to that Medic's own deployment event and identity.
 - [ ] Estimated deployment drains linearly over eight seconds, then starts ideal
       rebuilding from zero without modeling flashing.
+- [ ] Quick-Fix follows the same eight-second deployment drain and resumes ideal
+      rebuilding at 2.75 percentage points per second.
+- [ ] A Vaccinator `player_chargedeployed` event does not fabricate 100%, an
+      eight-second drain, or deployment color.
 - [ ] Spawn and post-inventory events start a `~0%` estimate while retaining the
       supported family as last-known and showing the border.
-- [ ] Switching Stock/Kritz is corrected immediately when the new current weapon
+- [ ] Switching among Stock/Kritz/Quick-Fix/Vaccinator is corrected immediately when the new current weapon
       becomes readable; the previous family is never allowed to override it.
 - [ ] Re-observation after any event corrects each readable field on the first
       Draw after network capture.
@@ -112,28 +130,36 @@ Use a map/server where the tested Medic can move far enough to become dormant.
 ## Selection
 
 - [ ] In self-Medic mode, other allied Medics never replace the local player.
+- [ ] In self-Medic mode, local Quick-Fix or Vaccinator remains selected even
+      when an allied Stock Medic is ready.
 - [ ] In team mode, each side independently selects nearest time-to-ready.
-- [ ] A current or estimated active supported Medic outranks non-active
+- [ ] A current or estimated active comparison-supported Medic outranks non-active
       candidates.
 - [ ] Within the active/normal group, candidates select greatest active charge or
       nearest normal time-to-ready using current or estimated point values.
 - [ ] When readiness differs by more than the selection tolerance, the better
       point value wins regardless of source freshness.
 - [ ] Within the selection tolerance, freshness orders candidates as current,
-      then player resource, then estimated; a remaining tie retains the
-      previous server user id and finally uses the lowest entity index.
-- [ ] A nearby identified eligible Medic remains selected even when another
+      then player resource, then estimated after the Stock, Kritzkrieg,
+      Quick-Fix family tie-break; a remaining tie retains the previous server
+      user id and finally uses the lowest entity index.
+- [ ] At equal readiness, Stock wins over Kritzkrieg, which wins over Quick-Fix;
+      outside the tolerance the numerically earlier readiness still wins.
+- [ ] Vaccinator is selected only when no living comparison-supported Medic is
+      available, and it is preferred over unknown/custom equipment.
+- [ ] A nearby identified comparison-supported Medic remains selected even when another
       roster Medic has unknown weapon/charge data.
 - [ ] An unknown Medic is displayed only when no numerically trackable eligible
       candidate is available on that side.
-- [ ] Death or unsupported weapon immediately triggers reselection.
-- [ ] If no living candidate remains, a previously identified supported Medic
-      who dies becomes `TEAM | DEAD MED`; any living candidate, including an
-      unknown one, takes precedence.
-- [ ] With multiple dead supported Medics and no living candidate, the previous
+- [ ] Death or a move to a lower support tier immediately triggers reselection.
+- [ ] If no living candidate remains, any Medic who dies becomes
+      `TEAM | DEAD MED`; any living candidate, including an unknown one, takes
+      precedence.
+- [ ] With multiple dead Medics and no living candidate, the previous
       selection remains; without it, the most recent death is represented.
-- [ ] Respawn removes `DEAD MED`; class/team change, disconnect, map change, and
-      identity replacement clear the incompatible dead fallback.
+- [ ] Respawn removes `DEAD MED`; class change away from Medic, disconnect, map
+      change, and identity replacement clear it; a Medic team change moves the
+      fallback to the new team.
 
 ## Text, status, and colors
 
@@ -144,6 +170,9 @@ Use a map/server where the tested Medic can move far enough to become dormant.
 - [ ] Each supported numeric side shows its whole-second time-to-ready; exact
       readiness uses `Ns`, approximate or retained-input readiness uses `~Ns`,
       and missing or incomplete sides use `-`.
+- [ ] `QF` participates in the normal percentage/readiness/status layout;
+      `VACC` shows percentage with `-` readiness and forces the third line to
+      exactly `-`.
 - [ ] Exact charge/time signs and rounding match known test values, including a
       team-line readiness boundary where the percentage display does not change.
 - [ ] Estimated inputs retain `ADV`, `DIS`, or `EQL` based on their point
@@ -183,7 +212,7 @@ Use a map/server where the tested Medic can move far enough to become dormant.
 ## Visibility, position, and persistence
 
 - [ ] Widget remains visible while dead, using team mode where possible.
-- [ ] Widget remains visible with no eligible Medic on either team.
+- [ ] Widget remains visible with no Medic on either team.
 - [ ] Scoreboard, chat, and LMAOBox menu do not hide it.
 - [ ] Source console, TF2 game UI, MvM, and unsupported round states hide it.
 - [ ] Dragging works only from inside the widget with the LMAOBox menu open.

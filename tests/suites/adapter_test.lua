@@ -412,22 +412,27 @@ Harness.test("failed resource table falls back without proving empty roster", fu
     Harness.truthy(row_by_userid(snapshot, 10).current_present)
 end)
 
-Harness.test("unknown and unsupported item definitions fail closed", function()
+Harness.test("recognized and unknown item definitions remain distinct", function()
     local unknown_options = { index = 101, item = 123456, local_charge = 0.5, deployed = false }
-    local unsupported_options = { index = 102, item = 411, nonlocal_charge = 0.5, deployed = false }
+    local quickfix_options = { index = 102, item = 411, nonlocal_charge = 0.5, deployed = false }
+    local vacc_options = { index = 103, item = 998, nonlocal_charge = 0.75, deployed = false }
     local unknown_weapon = Fakes.weapon(unknown_options)
-    local unsupported_weapon = Fakes.weapon(unsupported_options)
+    local quickfix_weapon = Fakes.weapon(quickfix_options)
+    local vacc_weapon = Fakes.weapon(vacc_options)
     local first = Fakes.player({ index = 1, team = 2, class = 5, alive = true, loadout_weapon = unknown_weapon })
-    local second = Fakes.player({ index = 2, team = 3, class = 5, alive = true, loadout_weapon = unsupported_weapon })
+    local second = Fakes.player({ index = 2, team = 3, class = 5, alive = true, loadout_weapon = quickfix_weapon })
+    local third = Fakes.player({ index = 3, team = 3, class = 5, alive = true, loadout_weapon = vacc_weapon })
     unknown_options.owner = first
-    unsupported_options.owner = second
+    quickfix_options.owner = second
+    vacc_options.owner = third
     local host = Fakes.host({
-        players = { first, second }, local_player = first,
-        userids = { [1] = 10, [2] = 20 },
+        players = { first, second, third }, local_player = first,
+        userids = { [1] = 10, [2] = 20, [3] = 30 },
     })
     local snapshot = Adapter.new(host):capture()
     Harness.equal(row_by_userid(snapshot, 10).current_family, "UNSUPPORTED")
-    Harness.equal(row_by_userid(snapshot, 20).current_family, "UNSUPPORTED")
+    Harness.equal(row_by_userid(snapshot, 20).current_family, "QF")
+    Harness.equal(row_by_userid(snapshot, 30).current_family, "VACC")
 end)
 
 Harness.test("disguised Spy lifecycle remains Spy and bots need no exception", function()

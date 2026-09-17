@@ -1,7 +1,7 @@
 # Ubermensch LMAOBox - Acceptance Test Plan
 
-Version 2.2.1  
-Last updated: 2026-09-15
+Version 2.3.0
+Last updated: 2026-09-16
 
 ## 1. Test principles
 
@@ -29,9 +29,13 @@ are from the local side's perspective.
 | Stock 90 | Kritz 65 | 4.0 | 11.2 | +7.2 | +25 | EQL |
 | Stock 100 | Kritz 65 | 0.0 | 11.2 | +11.2 | +35 | ADV |
 | Stock 50 | Kritz 90 | 20.0 | 3.2 | -16.8 | -40 | DIS |
+| QF 50 | QF 72.5 | 18.1818... | 10.0 | -8.1818... | -22.5 | EQL |
+| Stock 50 | QF 45 | 20.0 | 20.0 | 0.0 | +5 | EQL |
+| QF 100 | Stock 50 | 0.0 | 20.0 | +20.0 | +50 | ADV |
 
 The executable table MUST also cover reciprocal and near-zero cross-family
-cases, 0%, 100%, charge clamping, malformed numbers, unsupported families, and
+cases, 0%, 100%, charge clamping, malformed numbers, Vaccinator/unknown
+comparison rejection, and
 the exact `-10`/`+10` inclusive boundaries plus values immediately outside.
 
 ### 2.1 Alive-player counts
@@ -62,11 +66,14 @@ elapsed monotonic time. Fixed vectors include:
 | Kritz 60 | deployed | 4.8 | 0.0 | false |
 | Stock 100 | deployed | 10.0 | 5.0 | false |
 | Kritz 100 | deployed | 10.0 | 6.25 | false |
+| QF 50 | running inactive | 4.0 | 61.0 | false |
+| QF 100 | deployed | 10.0 | 5.5 | false |
 
 Tests MUST also cover phase-segment integration, charge clamping, nonfinite or
 negative elapsed time, an estimate remaining at 100%, and repeated updates
 proving that estimates are never re-anchored from prior estimates. No interval,
 width cutoff, flashing bound, or probabilistic value may affect the result.
+Vaccinator and unknown/custom families MUST produce no estimate.
 
 ## 4. Tracking and source precedence
 
@@ -85,19 +92,23 @@ The pure tracking suite MUST cover these transitions:
 5. Valid resource values at both 0 and 100 are accepted; malformed,
    out-of-range, unavailable, or unassociated values are ignored.
 6. A correctly associated deployment event anchors only its user id at 100% and
-   starts the standard drain model.
+   starts the standard drain model for Stock, Kritzkrieg, and Quick-Fix. An
+   event received before family identification waits for that identity's family;
+   Vaccinator or unknown/custom identification discards it without conventional
+   deployment state.
 7. With two Medics on one team, an event for the unselected Medic cannot alter
    the selected Medic's record; it may change selection only after its own record
    is updated.
 8. An entity-index reuse cannot receive an event belonging to the prior user id.
 9. A same-cycle current observation overrides event, resource, retained, and
    estimated values field by field.
-10. Spawn and post-inventory events anchor 0% while retaining a supported family
+10. Spawn and post-inventory events anchor 0% while retaining a known family
    as last-known.
-11. Death removes eligibility, clears charge/deployment, and retains a known
-    supported family as a timestamped dead-Medic fallback.
-12. Respawn removes the dead fallback; team/class changes, disconnect,
-    identity replacement, and map reset invalidate incompatible dead records.
+11. Death removes living eligibility, clears charge/deployment, and creates a
+    timestamped dead-Medic fallback even if family is unknown/custom.
+12. Respawn removes the dead fallback; class change away from Medic,
+    disconnect, identity replacement, and map reset invalidate it. A team
+    change moves it to the new team while clearing incompatible gameplay facts.
 13. A map, local-team, or local-player change cannot leak incompatible records;
     self-Medic/team-mode transitions preserve still-valid records for others.
 14. Reacquisition replaces estimates immediately, including a large correction.
@@ -116,7 +127,7 @@ Faked boundary tests MUST verify:
 - local current charge uses `LocalTFWeaponMedigunData`;
 - nonlocal current charge uses `NonLocalTFWeaponMedigunData`;
 - the unqualified `m_flChargeLevel` path is never used as a charge source;
-- per-player secondary loadout-slot lookup discovers supported Medi Guns without
+- per-player secondary loadout-slot lookup discovers recognized Medi Guns without
   querying direct `CWeaponMedigun` enumeration;
 - definitively dead and non-Medic players incur no active/loadout weapon reads,
   while a non-dormant player with unreadable class or alive state remains
@@ -141,7 +152,8 @@ Faked boundary tests MUST verify:
   without falsely confirming an empty global roster;
 - raw team numbers 2 and 3 map to RED and BLU respectively;
 - a disguised Spy is ignored and bots follow the same Medic rules;
-- unsupported and unknown item definitions fail closed;
+- Stock/Kritz/Quick-Fix/Vaccinator definitions classify exactly and unknown
+  definitions fail closed as the internal unknown/custom signal;
 - relevant GameEvents are normalized, `player_chargedeployed.userid` is
   preserved, and irrelevant/malformed events are ignored;
 - snapshot acquisition prefers `FRAME_NET_UPDATE_END`; when stage 4 is absent,
@@ -158,22 +170,27 @@ Faked boundary tests MUST verify:
 
 Automated selection tests MUST verify:
 
-- current or estimated active supported candidates outrank normal candidates;
+- current or estimated active comparison-supported candidates outrank normal candidates;
 - active candidates rank by greatest current/estimated remaining charge;
 - normal candidates rank by earliest current/estimated time-to-ready, not raw
   percentage;
 - outside the active/normal numerical tie tolerance, the better numerical value
   wins regardless of source;
-- inside the tolerance, freshness orders current, resource, then estimated data
-  before prior user id and entity-index fallbacks;
-- active 0.1-point and normal 0.05-second ties retain the prior selection and
-  otherwise use lowest entity index;
-- dead candidates never participate in living-Medic selection, and unsupported
-  candidates are ignored;
-- any current, resource, retained, or estimated supported candidate outranks an
-  unidentified roster fallback in the relevant active/normal group;
-- an unidentified Medic is selected only when no numerically trackable eligible
-  candidate is available; and
+- inside the normal readiness tolerance, family preference is Stock,
+  Kritzkrieg, then Quick-Fix, followed by freshness as current, resource, then
+  estimated data, prior user id, and entity index;
+- inside the active-charge tolerance, the pre-existing freshness, prior-user-id,
+  and entity-index tie-breaks apply without a family preference;
+- same-family active 0.1-point and normal 0.05-second ties retain the prior
+  selection and otherwise use lowest entity index;
+- dead candidates never participate in living-Medic selection;
+- the team-mode support tiers are numeric comparison-supported, charge-less
+  comparison-supported, Vaccinator, then unknown/custom;
+- Vaccinator fallback selection prefers greatest known current/resource charge
+  and then uses stable freshness/identity ties;
+- active Vaccinator state never overrides a comparison-supported candidate;
+- an unknown/custom Medic is selected only when no higher-tier living candidate
+  is available; and
 - ally and enemy selection are independent;
 - a living unknown Medic outranks every dead fallback; and
 - with no living candidate, dead selection retains the prior user id, otherwise
@@ -183,14 +200,18 @@ Automated selection tests MUST verify:
 
 Automated state tests MUST cover:
 
-- alive local Medic versus selected enemy, ignoring other allies;
+- alive local Medic versus selected enemy, ignoring other allies regardless of
+  the local Medic's family;
 - every non-Medic class and dead local player using team mode;
 - confirmed missing side as compact `NO MED`;
-- a retained authoritatively dead supported Medic as compact `DEAD MED`;
-- dead fallback clearing on respawn/class/team/disconnect/map transitions;
+- any retained authoritatively dead Medic as compact `DEAD MED`;
+- dead fallback clearing on respawn/class-away/disconnect/map transitions and
+  moving correctly on a Medic team change;
 - two unavailable sides as `EQL | 0% | -`;
 - supported zero versus missing still using known-side ADV/DIS precedence;
 - genuinely unknown family/charge producing `-` on the third line, never zero;
+- Quick-Fix participating in ordinary readiness and comparison math;
+- Vaccinator showing charge but no readiness and forcing the third line to `-`;
 - estimated points remaining comparable with `ADV`, `DIS`, or `EQL` and a
   border;
 - approximate resource data remaining comparable and bordered;
@@ -243,6 +264,11 @@ BLU | ?% | - | UNKNOWN
 Compact death MUST be tested exactly as `RED | DEAD MED` (or the corresponding
 BLU line).
 
+Quick-Fix and Vaccinator MUST additionally be tested exactly in normal rows,
+including `RED | 45% | 20s | QF` and `RED | 50% | - | VACC` before any
+cross-line alignment padding. Any comparison with a selected Vaccinator MUST be
+exactly `-`.
+
 Formatting tests MUST cover half-away point rounding, `~` on estimated/resource
 percentages, team readiness, and differences; retained-family readiness marked
 approximate; positive signs; negative zero normalization; whole-second team
@@ -264,8 +290,9 @@ four-text-call render contract.
 ## 9. Colors and border
 
 Automated tests MUST assert every fixed RGBA value in the specification.
-Deployment team color precedes ready yellow; current or estimated 100% precedes
-ordinary white. The third line is green, red, or white for `ADV`, `DIS`, or
+Conventional deployment team color precedes ready yellow; current or estimated
+100% precedes ordinary white. Vaccinator ignores deployment color and is yellow
+at 25% or greater, otherwise white. The third line is green, red, or white for `ADV`, `DIS`, or
 `EQL`; `-` is white. `NO MED` and `DEAD MED` are gray. No amber status role exists.
 Separate team-count constants MUST contain the specified white text and gray
 separator RGBA values. The fourth line MUST remain white for factual and
@@ -275,6 +302,7 @@ The dark-yellow border MUST be absent for current, confirmed-missing, and
 confirmed-dead inputs alone, and present
 if either side is resource-derived, estimated, retained, or unknown, or roster
 authority is unavailable.
+Vaccinator deployment availability alone MUST NOT request the border.
 The panel remains one background rectangle plus one separator rectangle and
 four warning-border strips.
 
@@ -356,9 +384,10 @@ threshold. Actual frame-rate impact and long-session stability remain manual.
 Existing executable suites MUST retain strict position parsing, versioning,
 fallback paths, one-warning behavior, and in-memory operation on failure.
 
-Weapon tests MUST validate every centralized Stock/Kritz definition, explicit
-Quick-Fix/Vaccinator rejection, unknown fail-closed behavior, and—when the
-installed TF2 schema is available—the schema-derived family sets.
+Weapon tests MUST validate every centralized Stock/Kritz definition, exact
+Quick-Fix and Vaccinator recognition, their full-versus-display-only capability
+groups, family tie ranks, unknown fail-closed behavior, and—when the installed
+TF2 schema is available—the schema-derived family sets.
 
 ## 13. Static and manual gate
 

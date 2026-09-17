@@ -163,6 +163,120 @@ Harness.test("deployment event is user-ID-specific and drains", function()
     Harness.falsy(find(view, 20).deployed)
 end)
 
+Harness.test("Quick-Fix current data estimates and deployment drain normally", function()
+    local tracker = Tracking.new()
+    local row = Fixtures.player(20, 2, 3, "QF", 50, "current")
+    baseline(tracker, { row })
+    row.current_charge = nil
+    row.resource_charge = nil
+    row.current_deployed = nil
+    local estimated = find(Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 14,
+        players = { row },
+    })), 20)
+    Harness.equal(estimated.family, "QF")
+    Harness.near(estimated.charge, 61, 1e-9)
+    Harness.equal(estimated.charge_source, "estimate")
+
+    Tracking.enqueue(tracker, {
+        name = "player_chargedeployed", userid = 20, time = 14,
+    })
+    local deployed = find(Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 16,
+        players = { row },
+    })), 20)
+    Harness.near(deployed.charge, 75, 1e-9)
+    Harness.truthy(deployed.deployed)
+end)
+
+Harness.test("Vaccinator retains current or resource charge but is not estimated", function()
+    local tracker = Tracking.new()
+    local row = Fixtures.player(20, 2, 3, "VACC", 50, "current")
+    local current = find(baseline(tracker, { row }), 20)
+    Harness.equal(current.family, "VACC")
+    Harness.equal(current.charge, 50)
+
+    row.current_charge = nil
+    row.resource_charge = 75
+    row.current_deployed = nil
+    local resource = find(Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 11,
+        players = { row },
+    })), 20)
+    Harness.equal(resource.charge, 75)
+    Harness.equal(resource.charge_source, "resource")
+
+    row.resource_charge = nil
+    local retained = find(Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 12,
+        players = { row },
+    })), 20)
+    Harness.is_nil(retained.charge)
+    Harness.equal(retained.charge_source, "unknown")
+end)
+
+Harness.test("Vaccinator deployment event does not create conventional state", function()
+    local tracker = Tracking.new()
+    local row = Fixtures.player(20, 2, 3, "VACC", 50, "current")
+    baseline(tracker, { row })
+    Tracking.enqueue(tracker, {
+        name = "player_chargedeployed", userid = 20, time = 10,
+    })
+    row.current_charge = nil
+    row.resource_charge = nil
+    row.current_deployed = nil
+    local medic = find(Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 12,
+        players = { row },
+    })), 20)
+    Harness.is_nil(medic.charge)
+    Harness.falsy(medic.deployed)
+    Harness.equal(medic.deployment_source, "retained")
+end)
+
+Harness.test("deployment waits for a later supported family observation", function()
+    local tracker = Tracking.new()
+    local row = Fixtures.player(20, 2, 3, nil, nil, "current")
+    row.current_deployed = nil
+    baseline(tracker, { row })
+    Tracking.enqueue(tracker, {
+        name = "player_chargedeployed", userid = 20, time = 10,
+    })
+    local unresolved = find(Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 11,
+        players = { row },
+    })), 20)
+    Harness.is_nil(unresolved.charge)
+
+    row.current_family = "QF"
+    local resolved = find(Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 12,
+        players = { row },
+    })), 20)
+    Harness.near(resolved.charge, 75, 1e-9)
+    Harness.truthy(resolved.deployed)
+end)
+
+Harness.test("unknown current equipment preserves charge as UNKNOWN", function()
+    local tracker = Tracking.new()
+    local row = Fixtures.player(20, 2, 3, "UNSUPPORTED", 50, "current")
+    local view = baseline(tracker, { row })
+    local medic = find(view, 20)
+    Harness.is_nil(medic.family)
+    Harness.truthy(medic.unsupported)
+    Harness.equal(medic.charge, 50)
+    Harness.equal(medic.charge_source, "current")
+
+    row.alive = false
+    row.current_alive = false
+    view = Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 11,
+        players = { row },
+    }))
+    Harness.equal(#view.dead_candidates, 1)
+    Harness.truthy(view.dead_candidates[1].unsupported)
+end)
+
 Harness.test("death event creates a fallback only for its user ID", function()
     local tracker = Tracking.new()
     local first = Fixtures.player(20, 2, 3, "STOCK", 50, "current")
@@ -321,7 +435,7 @@ Harness.test("respawn clears dead fallback and creates a living candidate", func
     Harness.equal(find(view, 20).charge, 0)
 end)
 
-Harness.test("team change clears an incompatible dead fallback", function()
+Harness.test("team change moves a dead Medic fallback and clears gameplay", function()
     local tracker = Tracking.new()
     local row = Fixtures.player(20, 2, 3, "STOCK", 50, "current")
     baseline(tracker, { row })
@@ -342,7 +456,10 @@ Harness.test("team change clears an incompatible dead fallback", function()
         players = {},
         roster_available = false,
     }))
-    Harness.equal(#moved.dead_candidates, 0)
+    Harness.equal(#moved.dead_candidates, 1)
+    Harness.equal(moved.dead_candidates[1].team, 2)
+    Harness.is_nil(moved.dead_candidates[1].family)
+    Harness.equal(moved.dead_candidates[1].died_at, 11)
 end)
 
 Harness.test("loss of readability estimates indefinitely from original anchor", function()

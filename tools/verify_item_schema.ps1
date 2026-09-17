@@ -37,8 +37,7 @@ function Read-LuaMap {
 }
 
 $luaSource = Get-Content -Raw -LiteralPath $constantsPath
-$actualFamilies = Read-LuaMap -Source $luaSource -TableName 'Constants.ITEM_FAMILY' -ValuePattern 'STOCK|KRITZ'
-$actualUnsupported = Read-LuaMap -Source $luaSource -TableName 'Constants.KNOWN_UNSUPPORTED' -ValuePattern 'QUICK-FIX|VACCINATOR'
+$actualFamilies = Read-LuaMap -Source $luaSource -TableName 'Constants.ITEM_FAMILY' -ValuePattern 'STOCK|KRITZ|QF|VACC'
 
 $records = [System.Collections.Generic.List[object]]::new()
 $current = $null
@@ -85,7 +84,6 @@ if ($null -ne $current) {
 }
 
 $expectedFamilies = @{}
-$expectedUnsupported = @{}
 $unclassifiedMediguns = [System.Collections.Generic.List[object]]::new()
 foreach ($record in $records) {
     $prefabs = @($record.Prefab -split '\s+' | Where-Object { $_ -ne '' })
@@ -95,9 +93,9 @@ foreach ($record in $records) {
         $expectedFamilies[$record.Id] = 'STOCK'
     } elseif ($record.ItemClass -eq 'tf_weapon_medigun') {
         if ($record.Name -eq 'The Quick-Fix') {
-            $expectedUnsupported[$record.Id] = 'QUICK-FIX'
+            $expectedFamilies[$record.Id] = 'QF'
         } elseif ($record.Name -eq 'The Vaccinator') {
-            $expectedUnsupported[$record.Id] = 'VACCINATOR'
+            $expectedFamilies[$record.Id] = 'VACC'
         } else {
             $unclassifiedMediguns.Add($record)
         }
@@ -107,26 +105,14 @@ foreach ($record in $records) {
 $problems = [System.Collections.Generic.List[string]]::new()
 foreach ($id in $expectedFamilies.Keys) {
     if (-not $actualFamilies.ContainsKey($id)) {
-        $problems.Add("missing supported definition $id ($($expectedFamilies[$id]))")
+        $problems.Add("missing recognized definition $id ($($expectedFamilies[$id]))")
     } elseif ($actualFamilies[$id] -ne $expectedFamilies[$id]) {
         $problems.Add("definition $id is $($actualFamilies[$id]); schema requires $($expectedFamilies[$id])")
     }
 }
 foreach ($id in $actualFamilies.Keys) {
     if (-not $expectedFamilies.ContainsKey($id)) {
-        $problems.Add("runtime has extra supported definition $id ($($actualFamilies[$id]))")
-    }
-}
-foreach ($id in $expectedUnsupported.Keys) {
-    if (-not $actualUnsupported.ContainsKey($id)) {
-        $problems.Add("missing known unsupported definition $id ($($expectedUnsupported[$id]))")
-    } elseif ($actualUnsupported[$id] -ne $expectedUnsupported[$id]) {
-        $problems.Add("unsupported definition $id has wrong label $($actualUnsupported[$id])")
-    }
-}
-foreach ($id in $actualUnsupported.Keys) {
-    if (-not $expectedUnsupported.ContainsKey($id)) {
-        $problems.Add("runtime has extra known unsupported definition $id ($($actualUnsupported[$id]))")
+        $problems.Add("runtime has extra recognized definition $id ($($actualFamilies[$id]))")
     }
 }
 foreach ($record in $unclassifiedMediguns) {
@@ -139,8 +125,7 @@ Write-Output "Schema: $($schema.FullName)"
 Write-Output "LastWriteUtc: $($schema.LastWriteTimeUtc.ToString('o'))"
 Write-Output "SHA256: $($hash.Hash)"
 Write-Output "Parsed item definitions: $($records.Count)"
-Write-Output "Supported definitions: $($actualFamilies.Count)"
-Write-Output "Known unsupported definitions: $($actualUnsupported.Count)"
+Write-Output "Recognized definitions: $($actualFamilies.Count)"
 
 if ($problems.Count -gt 0) {
     foreach ($problem in $problems) {

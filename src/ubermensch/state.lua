@@ -25,7 +25,7 @@ local function missing_side(team)
     }
 end
 
---- Creates the compact fallback for a retained supported Medic who is dead.
+--- Creates the compact fallback for an authoritatively dead Medic.
 -- @param candidate Selected dead-Medic identity and retained family.
 -- @param team Team identifier represented by the side.
 -- @return table Display side representing authoritative death.
@@ -89,7 +89,9 @@ local function side_warns(side)
     end
     return side.family_source ~= "current"
         or side.charge_source ~= "current"
-        or side.deployment_source ~= "current"
+        or (Weapons.is_supported(side.family)
+            and side.deployment_source ~= "current")
+        or side.family == nil
 end
 
 --- Resolves a comparison when both sides or a confirmed absence are known.
@@ -124,7 +126,7 @@ end
 
 --- Resolves the latest tracking snapshot into the HUD model.
 -- Self-Medic mode compares the alive local Medic directly. Other modes select
--- the nearest-time-to-ready eligible Medic on each team.
+-- the highest-priority living Medic on each team.
 -- @param tracking Tracker view containing candidates, roster state, and local identity.
 -- @param prior_selection Mutable per-team prior-selection table for stable ties.
 -- @return table|nil Display model, or nil until a local team is known.
@@ -142,9 +144,7 @@ function State.resolve(tracking, prior_selection)
         for i = 1, #tracking.candidates do
             local candidate = tracking.candidates[i]
             if candidate.is_local then
-                if candidate.unsupported ~= true then
-                    local_candidate = candidate
-                end
+                local_candidate = candidate
                 break
             end
         end

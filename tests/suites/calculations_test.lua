@@ -11,6 +11,9 @@ local vectors = {
     { "STOCK", 90, "KRITZ", 65, 4, 11.2, 7.2, 25, "EQL" },
     { "STOCK", 100, "KRITZ", 65, 0, 11.2, 11.2, 35, "ADV" },
     { "STOCK", 50, "KRITZ", 90, 20, 3.2, -16.8, -40, "DIS" },
+    { "QF", 50, "QF", 72.5, 200 / 11, 10, -90 / 11, -22.5, "EQL" },
+    { "STOCK", 50, "QF", 45, 20, 20, 0, 5, "EQL" },
+    { "QF", 100, "STOCK", 50, 0, 20, 20, 50, "ADV" },
 }
 
 for i = 1, #vectors do
@@ -51,9 +54,11 @@ end)
 Harness.test("charge endpoints and malformed inputs", function()
     Harness.near(Comparison.time_to_ready("STOCK", 0), 40, 1e-9)
     Harness.near(Comparison.time_to_ready("KRITZ", 100), 0, 1e-9)
+    Harness.near(Comparison.time_to_ready("QF", 50), 200 / 11, 1e-9)
     Harness.is_nil(Comparison.time_to_ready("STOCK", -1))
     Harness.is_nil(Comparison.time_to_ready("STOCK", 101))
-    Harness.is_nil(Comparison.time_to_ready("QUICK-FIX", 50))
+    Harness.is_nil(Comparison.time_to_ready("VACC", 50))
+    Harness.is_nil(Comparison.time_to_ready("UNKNOWN", 50))
     Harness.is_nil(Comparison.classify(0 / 0))
 end)
 

@@ -220,7 +220,7 @@ Harness.test("dead Medic is compact gray and does not warn", function()
     Harness.falsy(prepared.warning)
 end)
 
-Harness.test("living unknown Medic outranks a dead supported Medic", function()
+Harness.test("living unknown Medic outranks a dead Medic", function()
     local alive = Fixtures.side(2, nil, nil, "unknown", false, "unknown")
     alive.userid = 21
     local dead = {
@@ -318,7 +318,7 @@ Harness.test("partial side information cannot fabricate readiness", function()
 end)
 
 Harness.test("self Medic ignores other allied candidates", function()
-    local local_medic = Fixtures.side(2, "STOCK", 20, "current", false)
+    local local_medic = Fixtures.side(2, "QF", 20, "current", false)
     local_medic.is_local = true
     local other = Fixtures.side(2, "STOCK", 100, "current", false)
     local enemy = Fixtures.side(3, "STOCK", 50, "current", false)
@@ -327,7 +327,72 @@ Harness.test("self Medic ignores other allied candidates", function()
         local_alive = true,
     }), {})
     Harness.equal(model.local_side.charge, 20)
+    Harness.equal(model.local_side.family, "QF")
     Harness.truthy(model.self_mode)
+end)
+
+Harness.test("Quick-Fix uses normal readiness comparison and formatting", function()
+    local local_side = Fixtures.side(2, "QF", 45, "current", false)
+    local enemy_side = Fixtures.side(3, "STOCK", 50, "current", false)
+    local model = State.resolve(tracking({ local_side, enemy_side }), {})
+    local prepared = Formatting.prepare(model)
+    Harness.equal(prepared.lines[1], "RED | 45% | 20s | QF")
+    Harness.equal(prepared.lines[2], "BLU | 50% | 20s | STOCK")
+    Harness.equal(prepared.lines[3], "EQL | -5% |  0s")
+end)
+
+Harness.test("Vaccinator is display-only with no readiness or comparison", function()
+    local vacc = Fixtures.side(2, "VACC", 50, "current", true)
+    vacc.deployment_source = "unknown"
+    local enemy = Fixtures.side(3, "STOCK", 50, "current", false)
+    local model = State.resolve(tracking({ vacc, enemy }), {})
+    local prepared = Formatting.prepare(model)
+    Harness.equal(prepared.lines[1], "RED | 50% |   - | VACC")
+    Harness.equal(prepared.lines[3], "-")
+    Harness.falsy(prepared.warning)
+    Harness.same_table(prepared.colors[1], Constants.COLORS.ready)
+    Harness.same_table(
+        Formatting.side_color(Fixtures.side(2, "VACC", 24, "current", true)),
+        Constants.COLORS.text
+    )
+    Harness.same_table(
+        Formatting.side_color(Fixtures.side(3, "VACC", 25, "current", true)),
+        Constants.COLORS.ready
+    )
+end)
+
+Harness.test("self Vaccinator cannot be replaced by allied Stock", function()
+    local local_medic = Fixtures.side(2, "VACC", 25, "current", false)
+    local_medic.is_local = true
+    local allied_stock = Fixtures.side(2, "STOCK", 100, "current", false)
+    local enemy = Fixtures.side(3, "QF", 50, "current", false)
+    local model = State.resolve(tracking({ local_medic, allied_stock, enemy }, {
+        local_class = 5,
+        local_alive = true,
+    }), {})
+    Harness.equal(model.local_side.family, "VACC")
+    Harness.is_nil(model.comparison)
+end)
+
+Harness.test("unknown living and dead Medics never become NO MED", function()
+    local unknown = Fixtures.side(2, nil, 50, "current", false)
+    unknown.unsupported = true
+    local living = State.resolve(tracking({ unknown }), {})
+    Harness.equal(Formatting.side_line(living.local_side), "RED | 50% | - | UNKNOWN")
+
+    local dead = {
+        userid = 20,
+        entity_index = 2,
+        team = 2,
+        alive = false,
+        dead = true,
+        unsupported = true,
+        died_at = 11,
+    }
+    local deceased = State.resolve(tracking({}, {
+        dead_candidates = { dead },
+    }), {})
+    Harness.equal(Formatting.side_line(deceased.local_side), "RED | DEAD MED")
 end)
 
 Harness.test("dead local Medic uses team mode", function()

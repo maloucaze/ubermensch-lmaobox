@@ -3,7 +3,7 @@
 
 local Constants = {}
 
-Constants.VERSION = "2.2.1"
+Constants.VERSION = "2.3.0"
 Constants.PREFIX = "[Ubermensch]"
 
 Constants.TEAM = {
@@ -33,6 +33,7 @@ Constants.ITEM_FAMILY = {
     [961] = "STOCK",
     [970] = "STOCK",
     [35] = "KRITZ",
+    [411] = "QF",
     [15008] = "STOCK",
     [15010] = "STOCK",
     [15025] = "STOCK",
@@ -45,16 +46,20 @@ Constants.ITEM_FAMILY = {
     [15122] = "STOCK",
     [15145] = "STOCK",
     [15146] = "STOCK",
-}
-Constants.KNOWN_UNSUPPORTED = {
-    [411] = "QUICK-FIX",
-    [998] = "VACCINATOR",
+    [998] = "VACC",
 }
 
 Constants.CHARGE_RATE = {
     STOCK = 2.5,
     KRITZ = 3.125,
+    QF = 2.75,
 }
+Constants.FAMILY_TIE_RANK = {
+    STOCK = 3,
+    KRITZ = 2,
+    QF = 1,
+}
+Constants.VACC_READY_PERCENT = 25
 Constants.SETUP_MULTIPLIER = 3
 Constants.DEPLOY_DRAIN_RATE = 12.5
 Constants.ADVANTAGE_SECONDS = 10

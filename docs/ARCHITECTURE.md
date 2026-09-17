@@ -1,7 +1,7 @@
 # Architecture
 
 Ubermensch separates maintainable authored modules from the one self-contained
-file loaded by LMAOBox. This document describes the implemented version 2.2
+file loaded by LMAOBox. This document describes the implemented version 2.3
 architecture and the invariants its tests and build tooling enforce.
 
 ## Runtime data flow
@@ -58,24 +58,31 @@ another roster scan. `team_counts` validates and maps the raw counts into
 local-first order without classifying the difference. Counts are withheld rather
 than retained whenever complete roster authority is unavailable.
 
-An authoritative death clears charge/deployment state but retains a previously
-identified supported family and the first observed death time. Tracking emits
-these bounded records separately from living candidates. Respawn or an
-incompatible lifecycle transition clears the dead fallback.
+An authoritative death clears charge/deployment state and retains the first
+observed death time even when family is unknown/custom. Tracking emits these
+bounded records separately from living candidates. Respawn or an incompatible
+lifecycle transition clears the dead fallback; a Medic team change moves it to
+the new team while clearing incompatible gameplay facts.
 
 Queued `player_chargedeployed` events are matched by `userid` to one record. They
 are never team-wide and never mutate another Medic merely because that Medic is
-selected. Spawn and post-inventory events create a 0% anchor while retaining a
-supported family as last-known. Contradictory current weapon evidence replaces
-it immediately.
+selected. Because the event has no family, its conventional 100%/eight-second
+semantics wait until the matched record is known as Stock, Kritzkrieg, or
+Quick-Fix; Vaccinator or unknown/custom identification discards the pending
+event. Spawn and post-inventory events create a 0% anchor while retaining a
+known family as last-known. Contradictory current weapon evidence replaces it
+immediately.
 
 `selection` chooses one candidate independently for each relevant team. After
 active priority, it ranks point values by greatest active charge or earliest
 normal readiness. Freshness is a tie-breaker rather than a gate, so a useful
-estimate remains selectable. Unidentified roster entries are fallbacks only when
-no numerically trackable supported candidate exists.
+estimate remains selectable. Inside numerical tolerance, family preference is
+Stock, Kritzkrieg, then Quick-Fix before freshness and identity tie-breaks.
+Team mode applies explicit support tiers: numeric comparison-supported,
+charge-less comparison-supported, Vaccinator, then unknown/custom. Vaccinator
+fallbacks prefer the greatest known current/resource charge.
 Only when no living candidate exists does a second linear selector consider
-dead supported records, retaining the prior identity before preferring the most
+dead Medic records, retaining the prior identity before preferring the most
 recent death and lowest-index tie-breaker.
 
 `comparison` contains point readiness math for both current and estimated
@@ -83,6 +90,9 @@ values. `state` applies self-Medic/team-mode and
 living/dead/missing/unknown precedence,
 producing one normalized HUD view. `formatting` owns printable point text,
 whole-second per-side readiness, approximate markers, and semantic color roles.
+Quick-Fix uses full comparison and standard deployment math at 2.75 percentage
+points per second. Vaccinator remains display-only: no readiness, estimate,
+comparison, or deployment color; it is yellow at its 25% segment threshold.
 It derives each displayed readiness through the same comparison helper used by
 selection and status math. Normal lines use dynamically aligned charge/time
 columns and whole-number differences. Missing/dead sides use compact gray
@@ -111,6 +121,7 @@ stops still unregister every stable id.
 
 Other focused modules provide constants/item mappings, numerical primitives,
 persistence, position behavior, safe boundary calls, and weapon classification.
+
 Pure modules never access LMAOBox globals.
 
 The controller also exposes a nil-by-default, fault-isolated observer boundary
@@ -136,8 +147,8 @@ Precedence is resolved independently for each field:
 3. correctly associated event fact;
 4. last-known family or point estimate from a trustworthy charge anchor;
 5. genuinely unknown only when no such fact exists;
-6. confirmed dead only from retained supported family plus authoritative death;
-7. confirmed missing only from a complete global roster when no dead fallback applies.
+6. confirmed dead from authoritative Medic lifecycle when no living Medic exists;
+7. confirmed missing only when a complete global roster proves no Medic exists.
 
 This hierarchy is fill-only below the first level: older sources fill fields that
 are absent, but cannot replace a current value. A record can therefore have a

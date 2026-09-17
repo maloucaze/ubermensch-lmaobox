@@ -16,6 +16,21 @@ local SOURCE_RANK = {
     unknown = 0,
 }
 
+--- Prefers the requested fixed family order inside a readiness tie.
+-- Family never overrides active state or a readiness difference outside the
+-- normal-selection tolerance.
+-- @param left First fully supported candidate.
+-- @param right Second fully supported candidate.
+-- @return table|nil Preferred candidate, or nil when families tie.
+local function family_tie(left, right)
+    local left_rank = Weapons.tie_rank(left.family)
+    local right_rank = Weapons.tie_rank(right.family)
+    if left_rank == right_rank then
+        return nil
+    end
+    return left_rank > right_rank and left or right
+end
+
 --- Calculates the freshness rank used only inside numeric tie tolerances.
 -- @param candidate Resolved Medic candidate.
 -- @return number Integer rank where a larger value is fresher.
@@ -80,25 +95,52 @@ local function prefer_numeric(left, right, prior_userid)
     if math.abs(difference) > Constants.READY_TIE_SECONDS + 1e-9 then
         return difference < 0 and left or right
     end
+    local preferred_family = family_tie(left, right)
+    if preferred_family ~= nil then
+        return preferred_family
+    end
     return tie_break(left, right, prior_userid)
 end
 
---- Selects one eligible Medic in O(P) time without sorting.
--- Supported candidates with numeric charge outrank unidentified or charge-less
--- fallbacks. The fallback exists so incomplete field reads do not falsely imply
--- `NO MED` when the roster still contains an eligible Medic.
+--- Chooses between display-only Vaccinator candidates.
+-- A larger known current/resource percentage is the most useful fallback;
+-- absent or tied charge uses the ordinary stable freshness tie-break.
+-- @param left First Vaccinator candidate.
+-- @param right Second Vaccinator candidate.
+-- @param prior_userid Previously selected user ID.
+-- @return table Preferred candidate.
+local function prefer_vacc(left, right, prior_userid)
+    local left_charge = Numbers.percent(left.charge)
+    local right_charge = Numbers.percent(right.charge)
+    if left_charge ~= nil and right_charge ~= nil and left_charge ~= right_charge then
+        return left_charge > right_charge and left or right
+    end
+    if left_charge ~= nil and right_charge == nil then
+        return left
+    end
+    if right_charge ~= nil and left_charge == nil then
+        return right
+    end
+    return tie_break(left, right, prior_userid)
+end
+
+--- Selects one living Medic in O(P) time without sorting.
+-- Numeric comparison-supported candidates outrank charge-less supported
+-- candidates, Vaccinator, and unidentified/custom fallbacks in that order.
+-- Every living Medic remains representable so unknown equipment cannot falsely
+-- imply `NO MED`.
 -- @param candidates Plain resolved candidates for one team.
 -- @param team Numeric team identifier.
 -- @param prior_userid Previously selected user ID for stable ties.
 -- @return table|nil Selected candidate, or nil when none is eligible.
 function Selection.for_team(candidates, team, prior_userid)
     local best_numeric
+    local best_supported_fallback
+    local best_vacc
     local best_fallback
     for i = 1, #candidates do
         local candidate = candidates[i]
-        if candidate.team == team and candidate.alive == true
-            and candidate.unsupported ~= true
-        then
+        if candidate.team == team and candidate.alive == true then
             local numeric = Weapons.is_supported(candidate.family)
                 and Numbers.percent(candidate.charge) ~= nil
             if numeric then
@@ -107,6 +149,26 @@ function Selection.for_team(candidates, team, prior_userid)
                 else
                     best_numeric = prefer_numeric(
                         best_numeric,
+                        candidate,
+                        prior_userid
+                    )
+                end
+            elseif Weapons.is_supported(candidate.family) then
+                if best_supported_fallback == nil then
+                    best_supported_fallback = candidate
+                else
+                    best_supported_fallback = tie_break(
+                        best_supported_fallback,
+                        candidate,
+                        prior_userid
+                    )
+                end
+            elseif candidate.family == "VACC" then
+                if best_vacc == nil then
+                    best_vacc = candidate
+                else
+                    best_vacc = prefer_vacc(
+                        best_vacc,
                         candidate,
                         prior_userid
                     )
@@ -122,13 +184,13 @@ function Selection.for_team(candidates, team, prior_userid)
             end
         end
     end
-    return best_numeric or best_fallback
+    return best_numeric or best_supported_fallback or best_vacc or best_fallback
 end
 
 --- Selects the dead-Medic fallback for a team in one linear pass.
 -- A previously selected identity remains stable; otherwise the most recent
 -- authoritative death wins, with entity index providing deterministic ties.
--- @param candidates Retained dead supported-Medic candidates.
+-- @param candidates Retained dead-Medic candidates.
 -- @param team Numeric team identifier.
 -- @param prior_userid Previously selected server user ID, if any.
 -- @return table|nil Preferred dead candidate, or nil when none qualifies.
@@ -136,10 +198,7 @@ function Selection.dead_for_team(candidates, team, prior_userid)
     local best
     for i = 1, #candidates do
         local candidate = candidates[i]
-        if candidate.team == team and candidate.dead == true
-            and candidate.unsupported ~= true
-            and Weapons.is_supported(candidate.family)
-        then
+        if candidate.team == team and candidate.dead == true then
             if candidate.userid == prior_userid then
                 return candidate
             end

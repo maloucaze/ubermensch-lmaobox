@@ -283,11 +283,17 @@ function Formatting.side_color(side)
     if side.missing or side.dead then
         return Constants.COLORS.unavailable
     end
-    if side.deployed == true then
+    if side.family ~= "VACC" and side.deployed == true then
         if side.team == Constants.TEAM.RED then
             return Constants.COLORS.red_deployed
         end
         return Constants.COLORS.blu_deployed
+    end
+    if side.family == "VACC"
+        and side.charge ~= nil
+        and side.charge >= Constants.VACC_READY_PERCENT
+    then
+        return Constants.COLORS.ready
     end
     if side.charge ~= nil and side.charge >= 100 then
         return Constants.COLORS.ready

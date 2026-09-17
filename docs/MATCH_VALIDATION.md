@@ -80,14 +80,17 @@ four-line HUD. They do not capture text typed by the player.
 Natural public matches provide useful evidence, but deliberately covering these
 transitions makes the later audit much stronger:
 
-1. Play alive Medic on RED and BLU, using Stock and Kritz, building, holstering,
-   reaching 100%, deploying, dying, respawning, and visiting resupply.
-2. Play a non-Medic while allied and enemy Stock/Kritz Medics build and deploy.
+1. Play alive Medic on RED and BLU, using Stock, Kritz, Quick-Fix, and
+   Vaccinator, building, holstering, reaching readiness, deploying, dying,
+   respawning, and visiting resupply.
+2. Play a non-Medic while allied and enemy Stock/Kritz/Quick-Fix Medics build
+   and deploy, and while a Vaccinator is the only or fallback Medic.
 3. Observe a Medic nearby, move far enough for dormancy or disappearance, wait,
    and return. Mark the departure and return.
-4. When possible, observe two supported Medics on one team, including separate
-   deployments and a selection change.
-5. Exercise no-Medic, unsupported Medi Gun, newly joined/unknown, death, class
+4. When possible, observe multiple Medics on one team, including equal-ready
+   Stock/Kritz/Quick-Fix selection, Vaccinator fallback, separate deployments,
+   and a selection change.
+5. Exercise no-Medic, unknown/custom Medi Gun, newly joined/unknown, death, class
    change, team change, disconnect, round transition, and map transition cases.
 6. Open the scoreboard, chat, LMAOBox menu, Source console, and TF2 game UI;
    drag the widget once while the menu is open.
@@ -163,7 +166,8 @@ death-time, and selected-dead-state evidence while preserving immediate product
 decisions, events, markers, and Draw correlation. Version 1.4.0 added the fourth
 team-count line and resolved alive-count evidence to decision records. Version
 1.4.1 simplifies that evidence to the literal local-first counts and their fixed
-white presentation.
+white presentation. Version 1.5.0 records the expanded Quick-Fix and
+display-only Vaccinator family decisions without changing the JSONL format.
 
 ## Privacy and evidentiary limits
 

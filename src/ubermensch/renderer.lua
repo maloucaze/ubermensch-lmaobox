@@ -45,20 +45,23 @@ function Renderer.new(host)
         cache_width = nil,
         cache_height = nil,
         cache_line_height = nil,
+        cache_offclass_offsets = {},
     }, Renderer), nil
 end
 
---- Measures the four-line widget and caches unchanged text dimensions.
+--- Measures the four-line or expanded widget and caches text dimensions.
 -- Cache invalidation depends only on line text because the font and padding are
 -- immutable for a runtime load.
--- @param lines Exactly four formatted lines.
+-- @param prepared Prepared display with four required and one optional line.
 -- @return number Widget width.
 -- @return number Widget height.
 -- @return number Common line height.
-function Renderer:measure(lines)
+function Renderer:measure(prepared)
+    local lines = prepared.lines
     local cached = self.cache_lines
     if lines[1] == cached[1] and lines[2] == cached[2]
         and lines[3] == cached[3] and lines[4] == cached[4]
+        and lines[5] == cached[5]
     then
         return self.cache_width, self.cache_height, self.cache_line_height
     end
@@ -66,7 +69,8 @@ function Renderer:measure(lines)
     draw_call(self, "SetFont", self.font)
     local maximum_width = 0
     local maximum_height = 0
-    for i = 1, 4 do
+    local line_count = lines[5] ~= nil and 5 or 4
+    for i = 1, line_count do
         local ok, width, height = Safe.library(
             self.host.draw,
             "GetTextSize",
@@ -90,12 +94,33 @@ function Renderer:measure(lines)
     cached[2] = lines[2]
     cached[3] = lines[3]
     cached[4] = lines[4]
+    cached[5] = lines[5]
+    local offsets = self.cache_offclass_offsets
+    for index = #offsets, 1, -1 do
+        offsets[index] = nil
+    end
+    if lines[5] ~= nil then
+        local offset = 0
+        for index = 1, #prepared.offclass_segments do
+            offsets[index] = offset
+            local ok, width = Safe.library(
+                self.host.draw,
+                "GetTextSize",
+                prepared.offclass_segments[index].text
+            )
+            if not ok or not Numbers.is_finite(width) or width < 0 then
+                error("draw.GetTextSize returned invalid segment width")
+            end
+            offset = offset + Numbers.round_half_away(width, 0)
+        end
+    end
     self.cache_width = maximum_width + layout.horizontal_padding * 2
-    self.cache_height = maximum_height * 4
+    local separator_count = lines[5] ~= nil and 2 or 1
+    self.cache_height = maximum_height * line_count
         + layout.vertical_padding * 2
         + layout.line_gap * 2
-        + layout.separator_gap * 2
-        + layout.separator_thickness
+        + layout.separator_gap * 2 * separator_count
+        + layout.separator_thickness * separator_count
     self.cache_line_height = maximum_height
     return self.cache_width, self.cache_height, self.cache_line_height
 end
@@ -130,38 +155,10 @@ local function draw_separator(self, bounds, y)
     )
 end
 
---- Draws the warning border as exactly four additional rectangles.
--- @param self Renderer instance.
--- @param x Left coordinate.
--- @param y Top coordinate.
--- @param width Widget width.
--- @param height Widget height.
-local function draw_warning_border(self, x, y, width, height)
-    set_color(self, Constants.COLORS.warning)
-    draw_call(self, "FilledRect", x, y, x + width, y + 1)
-    draw_call(
-        self,
-        "FilledRect",
-        x,
-        y + height - 1,
-        x + width,
-        y + height
-    )
-    draw_call(self, "FilledRect", x, y + 1, x + 1, y + height - 1)
-    draw_call(
-        self,
-        "FilledRect",
-        x + width - 1,
-        y + 1,
-        x + width,
-        y + height - 1
-    )
-end
-
 --- Renders one prepared frame with the exact rectangle/text call budget.
--- Each frame uses one background, one separator, and four text calls, plus
--- exactly four rectangles when source honesty requires the warning border.
--- @param prepared Prepared lines, colors, and warning flag.
+-- The optional fifth line adds one separator and one text call per fixed color
+-- segment; ordinary four-line frames retain their minimal drawing contract.
+-- @param prepared Prepared lines, colors, and optional off-class segments.
 -- @param bounds Pixel bounds and line height.
 function Renderer:draw(prepared, bounds)
     draw_call(self, "SetFont", self.font)
@@ -174,16 +171,6 @@ function Renderer:draw(prepared, bounds)
         bounds.x + bounds.width,
         bounds.y + bounds.height
     )
-    if prepared.warning then
-        draw_warning_border(
-            self,
-            bounds.x,
-            bounds.y,
-            bounds.width,
-            bounds.height
-        )
-    end
-
     local text_x = bounds.x + Constants.LAYOUT.horizontal_padding
     local text_y = bounds.y + Constants.LAYOUT.vertical_padding
     for i = 1, 3 do
@@ -198,6 +185,23 @@ function Renderer:draw(prepared, bounds)
         + Constants.LAYOUT.separator_gap
     set_color(self, prepared.colors[4])
     draw_call(self, "Text", text_x, text_y, prepared.lines[4])
+    if prepared.lines[5] ~= nil then
+        text_y = text_y + bounds.line_height + Constants.LAYOUT.separator_gap
+        draw_separator(self, bounds, text_y)
+        text_y = text_y + Constants.LAYOUT.separator_thickness
+            + Constants.LAYOUT.separator_gap
+        for index = 1, #prepared.offclass_segments do
+            local segment = prepared.offclass_segments[index]
+            set_color(self, segment.color)
+            draw_call(
+                self,
+                "Text",
+                text_x + self.cache_offclass_offsets[index],
+                text_y,
+                segment.text
+            )
+        end
+    end
 end
 
 return Renderer

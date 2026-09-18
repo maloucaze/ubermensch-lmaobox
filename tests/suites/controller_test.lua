@@ -341,7 +341,55 @@ Harness.test("known Medic death reaches Draw as exact compact fallback", functio
         controller.latest_prepared.colors[2],
         Constants.COLORS.unavailable
     )
-    Harness.falsy(controller.latest_prepared.warning)
+end)
+
+Harness.test("competitive off-classes reach the next Draw without reacquisition", function()
+    local controller, host = setup()
+    local sniper_alive = Fakes.player({
+        index = 4, team = 3, class = 2, alive = true,
+    })
+    local sniper_dead = Fakes.player({
+        index = 5, team = 3, class = 2, alive = false,
+    })
+    local spy_dead = Fakes.player({
+        index = 6, team = 3, class = 8, alive = false,
+    })
+    host.state.players[4] = sniper_alive
+    host.state.players[5] = sniper_dead
+    host.state.players[6] = spy_dead
+    host.state.userids[4] = 40
+    host.state.userids[5] = 50
+    host.state.userids[6] = 60
+    host.state.casual = false
+    host.state.competitive = true
+    host.state.convars.sv_visiblemaxplayers = 12
+    host.state.resource = Fakes.resource({
+        [1] = { connected = true, valid = true, alive = true, team = 2, userid = 10, class = 1, charge = 0 },
+        [2] = { connected = true, valid = true, alive = true, team = 2, userid = 20, class = 5, charge = 75 },
+        [3] = { connected = true, valid = true, alive = true, team = 3, userid = 30, class = 5, charge = 50 },
+        [4] = { connected = true, valid = true, alive = true, team = 3, userid = 40, class = 2, charge = 0 },
+        [5] = { connected = true, valid = true, alive = false, team = 3, userid = 50, class = 2, charge = 0 },
+        [6] = { connected = true, valid = true, alive = false, team = 3, userid = 60, class = 8, charge = 0 },
+    })
+
+    controller:on_frame_stage(Constants.FRAME_NET_UPDATE_END)
+    Harness.equal(
+        controller.latest_prepared.lines[5],
+        "Off-class: SNIPER (2), SPY"
+    )
+    Harness.same_table(
+        controller.latest_prepared.offclass_segments[2].color,
+        Constants.OFFCLASS_COLORS.alive
+    )
+    Harness.same_table(
+        controller.latest_prepared.offclass_segments[4].color,
+        Constants.OFFCLASS_COLORS.dead
+    )
+    local acquisition = host.state.acquisition_calls
+    controller:on_draw()
+    Harness.equal(host.state.acquisition_calls, acquisition)
+    Harness.equal(count_calls(host.state.draw_calls, "rect"), 3)
+    Harness.equal(count_calls(host.state.draw_calls, "text"), 8)
 end)
 
 Harness.test("unchanged display reuses prepared and layout storage", function()
@@ -411,7 +459,7 @@ Harness.test("omitted local Medic reaches the next Draw through GetLocalPlayer",
     Harness.equal(count_calls(host.state.draw_calls, "text"), 4)
 end)
 
-Harness.test("partial current loss estimates only missing fields and warns", function()
+Harness.test("partial current loss estimates only missing fields", function()
     local controller, host, ally, enemy = setup()
     controller:on_frame_stage(4)
     host.state.now = 12
@@ -431,7 +479,6 @@ Harness.test("partial current loss estimates only missing fields and warns", fun
         controller.latest_prepared.lines[2],
         "BLU |  ~56% | ~14s | KRITZ"
     )
-    Harness.truthy(controller.latest_prepared.warning)
 end)
 
 Harness.test("current charge keeps updating when family and deployment reads fail", function()
@@ -445,7 +492,6 @@ Harness.test("current charge keeps updating when family and deployment reads fai
         controller.latest_prepared.lines[2],
         "BLU |  66% | ~11s | KRITZ"
     )
-    Harness.truthy(controller.latest_prepared.warning)
 end)
 
 Harness.test("current deployment change reaches the next prepared Draw state", function()
@@ -459,12 +505,11 @@ Harness.test("current deployment change reaches the next prepared Draw state", f
     )
 end)
 
-Harness.test("dormant resource data warns and full reacquisition clears warning", function()
+Harness.test("dormant resource data yields to full current reacquisition", function()
     local controller, host, _, enemy = setup()
     controller:on_frame_stage(4)
     host.state.players[3].options.dormant = true
     controller:on_frame_stage(4)
-    Harness.truthy(controller.latest_prepared.warning)
     Harness.equal(
         controller.latest_prepared.lines[2],
         "BLU |  ~50% | ~16s | KRITZ"
@@ -472,20 +517,10 @@ Harness.test("dormant resource data warns and full reacquisition clears warning"
     host.state.players[3].options.dormant = false
     enemy.nonlocal_charge = 0.55
     controller:on_frame_stage(4)
-    Harness.falsy(controller.latest_prepared.warning)
     Harness.equal(
         controller.latest_prepared.lines[2],
         "BLU |  55% | 14s | KRITZ"
     )
-end)
-
-Harness.test("warning frame adds four rectangles and no extra text", function()
-    local controller, host = setup()
-    controller:on_frame_stage(4)
-    controller.latest_prepared.warning = true
-    controller:on_draw()
-    Harness.equal(count_calls(host.state.draw_calls, "rect"), 6)
-    Harness.equal(count_calls(host.state.draw_calls, "text"), 4)
 end)
 
 Harness.test("ordinary frame draws one integral separator inside the widget", function()

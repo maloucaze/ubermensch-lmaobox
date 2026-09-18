@@ -53,6 +53,53 @@ Harness.test("failed roster authority withholds alive counts", function()
     Harness.is_nil(view.alive_counts)
 end)
 
+Harness.test("authoritative roster summarizes team sizes and enemy off-classes", function()
+    local tracker = Tracking.new()
+    local local_player = Fixtures.player(10, 1, 2, nil, nil, "resource")
+    local_player.class = 1
+    local sniper_alive = Fixtures.player(20, 2, 3, nil, nil, "resource")
+    sniper_alive.class = 2
+    local sniper_dead = Fixtures.player(21, 3, 3, nil, nil, "resource")
+    sniper_dead.class = 2
+    sniper_dead.alive = false
+    local spy_dead = Fixtures.player(22, 4, 3, nil, nil, "resource")
+    spy_dead.class = 8
+    spy_dead.alive = false
+
+    local view = baseline(tracker, {
+        local_player,
+        sniper_alive,
+        sniper_dead,
+        spy_dead,
+    })
+    Harness.equal(view.team_player_counts[2], 1)
+    Harness.equal(view.team_player_counts[3], 3)
+    Harness.equal(view.offclass_counts[3][2].total, 2)
+    Harness.equal(view.offclass_counts[3][2].alive, 1)
+    Harness.equal(view.offclass_counts[3][8].total, 1)
+    Harness.equal(view.offclass_counts[3][8].alive, 0)
+
+    local changed = Fixtures.player(20, 2, 3, nil, nil, "resource")
+    changed.class = 8
+    view = Tracking.reconcile(tracker, Fixtures.snapshot({
+        now = 11,
+        players = { local_player, changed },
+    }))
+    Harness.equal(view.team_player_counts[3], 1)
+    Harness.equal(view.offclass_counts[3][2].total, 0)
+    Harness.equal(view.offclass_counts[3][8].total, 1)
+    Harness.equal(view.offclass_counts[3][8].alive, 1)
+end)
+
+Harness.test("failed roster authority withholds format and off-class summaries", function()
+    local view = Tracking.reconcile(Tracking.new(), Fixtures.snapshot({
+        roster_available = false,
+        players = {},
+    }))
+    Harness.is_nil(view.team_player_counts)
+    Harness.is_nil(view.offclass_counts)
+end)
+
 Harness.test("authoritative roster membership and team changes replace counts", function()
     local tracker = Tracking.new()
     local local_player = Fixtures.player(10, 1, 2, nil, nil, "resource")

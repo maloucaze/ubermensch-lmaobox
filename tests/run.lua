@@ -11,6 +11,7 @@ package.path = table.concat({
 local suites = {
     "calculations_test",
     "team_counts_test",
+    "offclasses_test",
     "estimation_test",
     "weapon_test",
     "selection_test",

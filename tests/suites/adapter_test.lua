@@ -73,6 +73,47 @@ Harness.test("qualified local and nonlocal charge paths are exclusive", function
     })
 end)
 
+Harness.test("match-type and configured-slot facts are validated independently", function()
+    local host = Fakes.host({
+        casual = false,
+        competitive = true,
+        max_clients = 12,
+        convars = {
+            mp_tournament = "1",
+            mp_highlander = 0,
+            sv_visiblemaxplayers = "8",
+        },
+    })
+    local snapshot = Adapter.new(host):capture()
+    Harness.equal(snapshot.is_casual, false)
+    Harness.equal(snapshot.is_competitive, true)
+    Harness.equal(snapshot.is_tournament, true)
+    Harness.equal(snapshot.is_highlander, false)
+    Harness.equal(snapshot.configured_player_slots, 12)
+
+    host.state.casual = "yes"
+    host.state.competitive = 1
+    host.state.convars.mp_tournament = 2
+    host.state.convars.mp_highlander = "bad"
+    host.state.convars.sv_visiblemaxplayers = "12.5"
+    host.globals.MaxClients = function() return "malformed" end
+    snapshot = Adapter.new(host):capture()
+    Harness.is_nil(snapshot.is_casual)
+    Harness.is_nil(snapshot.is_competitive)
+    Harness.is_nil(snapshot.is_tournament)
+    Harness.is_nil(snapshot.is_highlander)
+    Harness.is_nil(snapshot.configured_player_slots)
+end)
+
+Harness.test("visible slots are a fallback when MaxClients is unavailable", function()
+    local host = Fakes.host({
+        convars = { sv_visiblemaxplayers = "8" },
+    })
+    Harness.equal(Adapter.new(host):capture().configured_player_slots, 8)
+    host.state.convars.sv_visiblemaxplayers = 0
+    Harness.is_nil(Adapter.new(host):capture().configured_player_slots)
+end)
+
 Harness.test("loadout discovery does not require or query direct enumeration", function()
     local local_player, enemy_player = medic_pair()
     local host = Fakes.host({

@@ -76,7 +76,7 @@
 - Minimize transient tables, strings, repeated formatting, and repeated text
   measurement in the Draw path. Add caching only when all invalidation inputs are
   explicit and tests prove that freshness, screen clamping, dragging, colors,
-  and warning-border behavior remain unchanged.
+  and all visible color and approximation behavior remain unchanged.
 - Do not add a slower polling cadence merely to improve performance unless a
   current observation from `FRAME_NET_UPDATE_END` still reaches the next
   eligible Draw and lifecycle transitions cannot be missed.

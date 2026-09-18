@@ -1,8 +1,9 @@
---- Resolves display sides, selection mode, comparison, and warning state.
+--- Resolves display sides, selection mode, comparison, and auxiliary state.
 -- @module ubermensch.state
 
 local Constants = require("ubermensch.constants")
 local Comparison = require("ubermensch.comparison")
+local Offclasses = require("ubermensch.offclasses")
 local Selection = require("ubermensch.selection")
 local TeamCounts = require("ubermensch.team_counts")
 local Weapons = require("ubermensch.weapons")
@@ -77,21 +78,6 @@ local function resolve_side(candidate, dead_candidate, team, roster_available)
         return missing_side(team)
     end
     return unknown_side(team)
-end
-
---- Determines whether a side contains retained, approximate, or unknown data.
--- Confirmed absence and death are exact and do not request a warning.
--- @param side Resolved display side.
--- @return boolean Whether the warning border is required for this side.
-local function side_warns(side)
-    if side.missing or side.dead then
-        return false
-    end
-    return side.family_source ~= "current"
-        or side.charge_source ~= "current"
-        or (Weapons.is_supported(side.family)
-            and side.deployment_source ~= "current")
-        or side.family == nil
 end
 
 --- Resolves a comparison when both sides or a confirmed absence are known.
@@ -218,10 +204,8 @@ function State.resolve(tracking, prior_selection)
         enemy_side = enemy_side,
         comparison = comparison,
         team_counts = team_counts,
+        offclasses = Offclasses.resolve(tracking),
         self_mode = self_mode,
-        warning = not tracking.roster_available
-            or side_warns(local_side)
-            or side_warns(enemy_side),
     }
 end
 

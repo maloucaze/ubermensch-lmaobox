@@ -26,6 +26,11 @@ function Fixtures.snapshot(overrides)
         local_team = 2,
         local_class = 1,
         local_alive = true,
+        is_casual = false,
+        is_competitive = false,
+        is_tournament = false,
+        is_highlander = false,
+        configured_player_slots = nil,
     }
     for key, value in pairs(overrides or {}) do
         result[key] = value

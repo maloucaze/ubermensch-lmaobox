@@ -1,6 +1,6 @@
 # API and item-schema evidence
 
-Documentary verification was most recently reviewed on 2026-09-16.
+Documentary verification was most recently reviewed on 2026-09-17.
 
 ## LMAOBox API boundary
 
@@ -9,12 +9,13 @@ The current official documentation supports the required runtime surfaces:
 - `entities.GetLocalPlayer()`, `entities.FindByClass("CTFPlayer")`, and
   `entities.GetPlayerResources()`;
 - `client.GetLocalPlayerIndex()` and `client.GetConVar()`;
-- `globals.RealTime()` and optional `globals.TickCount()`;
+- `globals.RealTime()`, `globals.MaxClients()`, and optional `globals.TickCount()`;
 - optional `clientstate.GetDeltaTick()` compatibility fallback;
 - entity validity, class, index, team, alive state, `IsDormant()`, loadout-slot
   lookup, weapon/Medi Gun checks, typed property reads, and typed data-table
   array reads;
 - map, console, game-UI, MvM, and round-state queries;
+- optional casual and competitive match-type queries;
 - font, measurement, screen, color, rectangle, and text drawing;
 - menu and mouse state;
 - FrameStageNotify, Draw, FireGameEvent, and Unload
@@ -184,6 +185,29 @@ TF2 entity/player-resource values follow Valve's `TF_TEAM_RED = 2` and
 `TF_TEAM_BLUE = 3`. The current LMAOBox `E_TeamNumber` documentation table has
 the labels reversed. Literal 2/3 automated tests protect local-first ownership,
 partitioning, labels, charge values, and deployment colors.
+
+### Competitive-format detection
+
+The official `gamerules` surface documents `IsMatchTypeCasual()` and
+`IsMatchTypeCompetitive()`. The runtime treats these as optional validated
+booleans: a positive casual result suppresses enemy off-class reporting, while
+competitive or `mp_tournament 1` permits further format resolution.
+`globals.MaxClients()` supplies the preferred configured server capacity.
+`client.GetConVar()` supplies the independently validated `mp_tournament` and
+`mp_highlander` values, plus `sv_visiblemaxplayers` as a compatibility fallback
+when `MaxClients()` is unavailable or malformed. Numeric ConVar strings are
+accepted only when they represent finite integers; malformed values remain
+unavailable.
+
+The API does not expose a single authoritative 4v4/6v6 label. A validated
+capacity of 8 or 12 is therefore the preferred format fact, while 18, any other
+valid unsupported capacity, or an enabled Highlander ConVar excludes the
+feature. Only if the capacity is absent or malformed does the complete
+player-resource roster provide the documented conservative fallback. This
+fallback does not create a new host
+query and excludes spectators/unassigned teams. These match-format reads and
+the inference still require the manual scenarios in `MANUAL_TESTS.md`; they are
+not claimed as completed live evidence here.
 
 ### Startup, persistence, and Lua version
 

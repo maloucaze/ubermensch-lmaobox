@@ -1,7 +1,7 @@
 # Manual TF2/LMAOBox validation checklist
 
-Version 2.3.0
-Last updated: 2026-09-16
+Version 2.4.0
+Last updated: 2026-09-17
 
 These checks require an actual TF2 session with current LMAOBox. Automated
 desktop checks do not satisfy them. Record only observations actually made.
@@ -75,14 +75,11 @@ Use a map/server where the tested Medic can move far enough to become dormant.
       while the local player is not an alive Medic.
 - [ ] Distance alone never changes a known alive Medic to `NO MED` or
       `DEAD MED`.
-- [ ] The dark-yellow border appears as soon as a formerly exact side is no
-      longer exact.
 - [ ] A short ordinary gap changes `N%` to a continuously advancing `~N%` point
       estimate based on the last trustworthy charge and family.
 - [ ] A known-family estimate continues indefinitely, reaches 100%, and never
       becomes `UNKNOWN` merely because it is old.
-- [ ] Returning to range immediately restores each readable current field and
-      removes the border once every selected non-missing field is current.
+- [ ] Returning to range immediately restores each readable current field.
 - [ ] A large difference between an estimate and reacquired current charge is
       corrected on the first Draw after the next network update.
 - [ ] A never-observed distant Medic has unknown percentage/family columns and
@@ -100,7 +97,6 @@ Use a map/server where the tested Medic can move far enough to become dormant.
 - [ ] A valid distant Vaccinator resource percentage remains visible and
       approximate, but is not advanced by an estimator after resource/current
       data disappears.
-- [ ] Resource-derived approximate data retains the dark-yellow border.
 - [ ] Nearby exact data overrides the approximate resource value immediately.
 - [ ] Valid resource endpoints 0 and 100 are accepted, while an unavailable,
       malformed, out-of-range, or unassociated row never becomes a charge
@@ -121,7 +117,7 @@ Use a map/server where the tested Medic can move far enough to become dormant.
 - [ ] A Vaccinator `player_chargedeployed` event does not fabricate 100%, an
       eight-second drain, or deployment color.
 - [ ] Spawn and post-inventory events start a `~0%` estimate while retaining the
-      supported family as last-known and showing the border.
+      supported family as last-known.
 - [ ] Switching among Stock/Kritz/Quick-Fix/Vaccinator is corrected immediately when the new current weapon
       becomes readable; the previous family is never allowed to override it.
 - [ ] Re-observation after any event corrects each readable field on the first
@@ -163,8 +159,8 @@ Use a map/server where the tested Medic can move far enough to become dormant.
 
 ## Text, status, and colors
 
-- [ ] The widget always has exactly four ASCII text lines in supported gameplay,
-      with a one-pixel gray separator between the third and fourth lines.
+- [ ] The widget has four required ASCII text lines in supported gameplay, with
+      a one-pixel gray separator between the third and fourth lines.
 - [ ] Current (`N%`), estimated/resource (`~N%`), and unknown (`?%`) columns,
       plus compact `TEAM | NO MED` and `TEAM | DEAD MED`, match the specification.
 - [ ] Each supported numeric side shows its whole-second time-to-ready; exact
@@ -184,9 +180,10 @@ Use a map/server where the tested Medic can move far enough to become dormant.
       spaces appear only where numeric right alignment requires them.
 - [ ] Lucida Console 14 at weight 600 is readable in motion and keeps the padded
       numeric columns visually aligned.
-- [ ] Missing/dead-side lines are gray, compact, and cause no warning border by
-      themselves; genuinely unknown comparisons show exactly
+- [ ] Missing/dead-side lines are gray and compact; genuinely unknown comparisons show exactly
       `-` and fabricate no zeroes.
+- [ ] No data-quality state draws a panel border; `~`, `?`, and `-` remain the
+      only visible approximation/unavailability indicators.
 
 ## Alive-player counts
 
@@ -208,6 +205,36 @@ Use a map/server where the tested Medic can move far enough to become dormant.
       and never changes the color of the three Uber lines.
 - [ ] Count changes do not add an extra polling cadence, delay Uber updates, or
       cause Draw-time entity acquisition.
+
+## Competitive enemy off-classes
+
+- [ ] Casual play never shows an off-class line, even with enemy Snipers or
+      Spies and a 12-player roster.
+- [ ] A configured 6v6 match shows a second one-pixel separator and
+      `Off-class: SNIPER` or `Off-class: SPY` when the corresponding enemy class
+      is present.
+- [ ] A configured 4v4 match provides the same detection.
+- [ ] When configured slots are unavailable, malformed, zero, or negative,
+      complete rosters with four players on the larger team infer 4v4, and five
+      or six infer 6v6.
+- [ ] Highlander/9v9, including an explicit 18-slot or `mp_highlander` match,
+      never shows the line; an inferred roster above six players on either team
+      also suppresses it.
+- [ ] A valid configured capacity other than 8 or 12 suppresses the line rather
+      than being reinterpreted from the currently connected roster.
+- [ ] An incomplete authoritative roster, fewer than four players on both teams
+      during fallback, or no enemy Sniper/Spy omits both the line and its second
+      separator.
+- [ ] Multiple enemies of one tracked class use a parenthesized count, and both
+      classes appear exactly as `Off-class: SNIPER (N), SPY` in fixed order.
+- [ ] A class token remains white while at least one represented enemy of that
+      class is alive and changes to gray only when all represented instances are
+      dead; the prefix and punctuation remain white.
+- [ ] Death, respawn, connect, reconnect, disconnect, team change, and class
+      change update the line on the next authoritative reconciliation without
+      delaying the Uber lines or alive-player count.
+- [ ] The enemy team is used while local is RED and while local is BLU; local
+      Snipers and Spies never appear in the list.
 
 ## Visibility, position, and persistence
 
@@ -235,7 +262,7 @@ do not treat normal match-to-match variation as a script result.
 - [ ] Repeat at the fullest practical roster size (preferably 32 players) while
       current, resource-derived, estimated, retained, and unknown states occur.
 - [ ] Exercise self-Medic and non-Medic team modes, deployment changes, the
-      data warning border, scoreboard/menu visibility, and dragging without a
+      optional off-class line, scoreboard/menu visibility, and dragging without a
       visible update delay or input hitch.
 - [ ] Leave the script loaded for at least 20 minutes while players join/leave and
       while changing class, team, round, and map. The HUD remains responsive and

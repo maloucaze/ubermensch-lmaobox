@@ -1,7 +1,7 @@
 # Architecture
 
 Ubermensch separates maintainable authored modules from the one self-contained
-file loaded by LMAOBox. This document describes the implemented version 2.3
+file loaded by LMAOBox. This document describes the implemented version 2.4
 architecture and the invariants its tests and build tooling enforce.
 
 ## Runtime data flow
@@ -18,7 +18,7 @@ LMAOBox entity/player-resource APIs       FireGameEvent callback
                     current/resource/estimate/?
                                 |
                                 v
-           selection + team_counts -> state -> formatting
+    selection + team_counts + offclasses -> state -> formatting
                                 |
                                 v
                     controller drawing/dragging
@@ -57,6 +57,14 @@ been applied at that point, so the counts follow the same authority rules withou
 another roster scan. `team_counts` validates and maps the raw counts into
 local-first order without classifying the difference. Counts are withheld rather
 than retained whenever complete roster authority is unavailable.
+
+That same pass also accumulates connected team sizes and alive/total Sniper and
+Spy counts. `offclasses` combines those summaries with validated casual,
+competitive/tournament, Highlander, and configured-slot facts. Exact 12/8-slot
+formats win and any other valid capacity is rejected. Only an unavailable or
+malformed capacity enables a bounded complete-roster heuristic that recognizes
+four, five, or six players on the larger team and rejects rosters above six. It emits
+only an enemy, definite 6v6/4v4 result, so Draw performs no roster work.
 
 An authoritative death clears charge/deployment state and retains the first
 observed death time even when family is unknown/custom. Tracking emits these
@@ -101,7 +109,9 @@ one space of cell padding on each side; any further leading spaces are solely
 the dynamic right alignment of numeric tokens. A genuinely unavailable
 comparison produces `-`; there is no interval or
 `UNCERTAIN` state. The independent fourth line formats literal alive-player
-counts or the white `- vs. -` unavailable form.
+counts or the white `- vs. -` unavailable form. A definite enemy off-class
+model produces an optional fifth line whose Sniper and Spy tokens have
+independent alive/all-dead colors.
 
 `controller` separates acquisition from presentation. FrameStageNotify uses the
 optional validated client/network tick revision to discard duplicate callbacks
@@ -153,8 +163,8 @@ Precedence is resolved independently for each field:
 This hierarchy is fill-only below the first level: older sources fill fields that
 are absent, but cannot replace a current value. A record can therefore have a
 current charge, last-known family, and unknown deployment simultaneously. The
-line remains useful, and the border communicates the non-current family or
-deployment.
+line remains useful, and its `~`, `?`, or `-` token communicates the weaker or
+missing input without a panel border.
 
 Unknown is also field-local. The presentation can preserve a `63%` charge with
 family `UNKNOWN` when only family is unavailable, or `?%` with `STOCK` when
@@ -177,7 +187,8 @@ callback. A second latch rejects repeated callbacks within one validated
 client/network revision; a changed revision or queued event captures, while an
 unavailable revision fails open. Either path captures the current LMAOBox snapshot, reconciles
 the bounded event queue and primitive tracking records, resolves both teams, and
-prepares the four display lines once before Draw. Draw uses that latest prepared
+prepares the four required display lines and optional off-class line once before
+Draw. Draw uses that latest prepared
 result to measure and clamp the panel, handle the permitted drag gesture, and
 draw once.
 This timing ensures that a readable current field reaches the next Draw without
@@ -196,14 +207,16 @@ growth across unchanged frames.
 The controller creates its font once. Prepared text and bounds storage are
 reused. The three Uber lines rebuild together only when a display-rounded token
 changes because their numeric column widths are shared; the independent
-team-count line rebuilds only when either count changes. Text measurement
+team-count line rebuilds only when either count changes. The off-class line and
+its fixed-color segments rebuild only when class presence, count, or alive state
+changes. Text measurement
 compares the cached lines without constructing a combined key. The fixed-width
 Lucida Console at size 14 and weight 600 turns character padding into
-pixel-consistent, readable columns while preserving exactly four text calls. A closed
-menu does not poll mouse coordinates or buttons. Each
-rendered frame issues four text draws, one background rectangle, and one
-separator rectangle, plus four rectangle calls when the warning border is
-present. The position and measurement boundary converts normalized or
+pixel-consistent, readable columns. A closed menu does not poll mouse
+coordinates or buttons. Each base frame issues four text draws, one background
+rectangle, and one separator rectangle. The optional off-class line adds a
+second separator and one text call per fixed-color segment; no warning-border
+rectangles exist. The position and measurement boundary converts normalized or
 fractional values to clamped integer pixels because native LMAOBox draw calls do
 not accept fractional coordinates. Steady-state frames do not access
 persistence, the item schema, or the network; a dirty position can be written
@@ -211,7 +224,7 @@ only at drag completion or unload.
 
 Formatting and measurement may be cached only if every invalidation
 input—including content, font, screen size, position, drag state, colors, and
-border state—is explicit. A slower roster cadence is unacceptable if it delays
+off-class segments—is explicit. A slower roster cadence is unacceptable if it delays
 current values or lifecycle changes.
 Performance work is verified through deterministic call-count and resource-bound
 tests plus controlled in-game FPS and long-session observation, not a portable
@@ -258,7 +271,7 @@ direct enumeration, active/loadout deduplication, owner reconciliation, global
 roster/charge arrays, event normalization, callbacks, and the bundled runtime.
 State/selection/comparison/team-count/formatting/controller suites verify
 current corrections, estimate marking, `-` fallback, literal alive-player
-counts, and the visible four-line output.
+counts, off-class summaries, and the visible four-line/optional-fifth-line output.
 Validation writer and recorder suites independently cover deterministic JSON,
 collision-safe file creation, bounded buffering, rotation, privacy projection,
 physical cross-part sequence continuity, delta suppression, capture-route

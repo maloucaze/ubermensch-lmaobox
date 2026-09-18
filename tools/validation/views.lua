@@ -18,6 +18,23 @@ local function copy_array(values)
     return result
 end
 
+--- Copies mixed-color text segments without retaining product-owned tables.
+-- @param segments Prepared segment array or nil.
+-- @return table|nil Recorder-owned segment views.
+local function copy_segments(segments)
+    if type(segments) ~= "table" or #segments == 0 then
+        return nil
+    end
+    local result = {}
+    for index = 1, #segments do
+        result[index] = {
+            text = segments[index].text,
+            color = copy_array(segments[index].color),
+        }
+    end
+    return result
+end
+
 --- Returns a safe type description without retaining a raw identity value.
 -- @param value Diagnostic raw primitive.
 -- @return string Lua type or diagnostic sentinel.
@@ -300,7 +317,7 @@ function Views:side(side)
     }
 end
 
---- Projects formatted HUD lines, colors, and warning state.
+--- Projects formatted HUD lines, colors, and optional off-class segments.
 -- @param prepared Product formatting result or nil.
 -- @return table|nil Recorder-owned display view.
 function Views.prepared(prepared)
@@ -315,7 +332,7 @@ function Views.prepared(prepared)
             copy_array(prepared.colors[3]),
             copy_array(prepared.colors[4]),
         },
-        warning = prepared.warning == true,
+        offclass_segments = copy_segments(prepared.offclass_segments),
     }
 end
 
@@ -338,10 +355,15 @@ function Views:decision(info)
             red = alive_counts[2],
             blu = alive_counts[3],
         } or nil,
+        team_player_counts = info.tracking.team_player_counts ~= nil and {
+            red = info.tracking.team_player_counts[2],
+            blu = info.tracking.team_player_counts[3],
+        } or nil,
         local_side = model ~= nil and self:side(model.local_side) or nil,
         enemy_side = model ~= nil and self:side(model.enemy_side) or nil,
         comparison = model ~= nil and model.comparison or nil,
         team_counts = model ~= nil and model.team_counts or nil,
+        offclasses = model ~= nil and model.offclasses or nil,
         prepared = Views.prepared(info.prepared),
     }
     -- Lua's `a and false or nil` idiom loses a legitimate false value. Assign

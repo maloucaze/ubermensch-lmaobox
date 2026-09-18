@@ -135,6 +135,38 @@ local function update_team_counts_cache(cache, counts)
     return changed
 end
 
+--- Resolves cached scalar tokens for the optional enemy off-class line.
+-- @param cache Reusable off-class token cache.
+-- @param offclasses Definite ordered off-class model or nil.
+-- @return boolean Whether its text or per-class life state changed.
+local function update_offclass_cache(cache, offclasses)
+    local classes = offclasses ~= nil and offclasses.classes or nil
+    local sniper
+    local spy
+    for index = 1, #(classes or {}) do
+        local class = classes[index]
+        if class.label == "SNIPER" then
+            sniper = class
+        elseif class.label == "SPY" then
+            spy = class
+        end
+    end
+    local visible = sniper ~= nil or spy ~= nil
+    local changed = cache.visible ~= visible
+        or cache.sniper_count ~= (sniper ~= nil and sniper.count or nil)
+        or cache.sniper_alive ~= (sniper ~= nil and sniper.alive or nil)
+        or cache.spy_count ~= (spy ~= nil and spy.count or nil)
+        or cache.spy_alive ~= (spy ~= nil and spy.alive or nil)
+    if changed then
+        cache.visible = visible
+        cache.sniper_count = sniper ~= nil and sniper.count or nil
+        cache.sniper_alive = sniper ~= nil and sniper.alive or nil
+        cache.spy_count = spy ~= nil and spy.count or nil
+        cache.spy_alive = spy ~= nil and spy.alive or nil
+    end
+    return changed
+end
+
 --- Builds percentage and readiness text from a cached normal side.
 -- @param cache Side-token cache.
 -- @return string Percentage token.
@@ -263,6 +295,63 @@ local function team_counts_line(cache)
         .. " vs. " .. tostring(cache.enemy_count)
 end
 
+--- Formats one class token with a parenthesized duplicate count.
+-- @param label Stable uppercase class label.
+-- @param class_count Positive class count.
+-- @return string Class token.
+local function offclass_token(label, class_count)
+    if class_count > 1 then
+        return label .. " (" .. tostring(class_count) .. ")"
+    end
+    return label
+end
+
+--- Rebuilds the optional mixed-color off-class line and its draw segments.
+-- @param prepared Reusable formatting result.
+local function rebuild_offclass(prepared)
+    local cache = prepared.cache[5]
+    local segments = prepared.offclass_segments
+    for index = #segments, 1, -1 do
+        segments[index] = nil
+    end
+    if not cache.visible then
+        prepared.lines[5] = nil
+        return
+    end
+
+    segments[1] = {
+        text = "Off-class: ",
+        color = Constants.OFFCLASS_COLORS.label,
+    }
+    if cache.sniper_count ~= nil then
+        segments[#segments + 1] = {
+            text = offclass_token("SNIPER", cache.sniper_count),
+            color = cache.sniper_alive
+                and Constants.OFFCLASS_COLORS.alive
+                or Constants.OFFCLASS_COLORS.dead,
+        }
+    end
+    if cache.spy_count ~= nil then
+        if cache.sniper_count ~= nil then
+            segments[#segments + 1] = {
+                text = ", ",
+                color = Constants.OFFCLASS_COLORS.label,
+            }
+        end
+        segments[#segments + 1] = {
+            text = offclass_token("SPY", cache.spy_count),
+            color = cache.spy_alive
+                and Constants.OFFCLASS_COLORS.alive
+                or Constants.OFFCLASS_COLORS.dead,
+        }
+    end
+    local text = ""
+    for index = 1, #segments do
+        text = text .. segments[index].text
+    end
+    prepared.lines[5] = text
+end
+
 --- Formats one team line independently, without cross-line padding.
 -- @param side Resolved display side.
 -- @return string Compact missing/dead line or normal four-column line.
@@ -338,12 +427,13 @@ end
 -- continue to drive selection and classification before presentation.
 -- @param model Resolved HUD model.
 -- @param prepared Optional result from the preceding capture.
--- @return table Four lines, four colors, and warning-border flag.
+-- @return table Four required lines and optional mixed-color off-class content.
 function Formatting.prepare(model, prepared)
     prepared = prepared or {
         lines = {},
         colors = {},
-        cache = { {}, {}, {}, {} },
+        cache = { {}, {}, {}, {}, {} },
+        offclass_segments = {},
     }
     local changed = update_side_cache(prepared.cache[1], model.local_side)
     changed = update_side_cache(prepared.cache[2], model.enemy_side) or changed
@@ -354,11 +444,13 @@ function Formatting.prepare(model, prepared)
     if update_team_counts_cache(prepared.cache[4], model.team_counts) then
         prepared.lines[4] = team_counts_line(prepared.cache[4])
     end
+    if update_offclass_cache(prepared.cache[5], model.offclasses) then
+        rebuild_offclass(prepared)
+    end
     prepared.colors[1] = Formatting.side_color(model.local_side)
     prepared.colors[2] = Formatting.side_color(model.enemy_side)
     prepared.colors[3] = Formatting.comparison_color(model.comparison)
     prepared.colors[4] = Formatting.team_counts_color()
-    prepared.warning = model.warning
     return prepared
 end
 

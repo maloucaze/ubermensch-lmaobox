@@ -270,7 +270,7 @@ local function resolve_bounds(self)
         return nil, "screen size unavailable"
     end
     local width, height, line_height = self.renderer:measure(
-        self.latest_prepared.lines
+        self.latest_prepared
     )
     local x, y = Position.pixels(
         self.position,

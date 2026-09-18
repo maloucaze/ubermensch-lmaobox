@@ -701,6 +701,20 @@ function Tracking.reconcile(tracker, snapshot)
         [Constants.TEAM.RED] = 0,
         [Constants.TEAM.BLU] = 0,
     } or nil
+    local team_player_counts = snapshot.roster_available and {
+        [Constants.TEAM.RED] = 0,
+        [Constants.TEAM.BLU] = 0,
+    } or nil
+    local offclass_counts = snapshot.roster_available and {
+        [Constants.TEAM.RED] = {
+            [Constants.SNIPER_CLASS] = { total = 0, alive = 0 },
+            [Constants.SPY_CLASS] = { total = 0, alive = 0 },
+        },
+        [Constants.TEAM.BLU] = {
+            [Constants.SNIPER_CLASS] = { total = 0, alive = 0 },
+            [Constants.SPY_CLASS] = { total = 0, alive = 0 },
+        },
+    } or nil
     local local_class = snapshot.local_class
     local local_alive = snapshot.local_alive
     for _, record in pairs(tracker.records) do
@@ -711,6 +725,21 @@ function Tracking.reconcile(tracker, snapshot)
             and alive_counts[record.team] ~= nil
         then
             alive_counts[record.team] = alive_counts[record.team] + 1
+        end
+        if team_player_counts ~= nil
+            and record.connected == true
+            and record.valid == true
+            and team_player_counts[record.team] ~= nil
+        then
+            team_player_counts[record.team] =
+                team_player_counts[record.team] + 1
+            local class_facts = offclass_counts[record.team][record.class]
+            if class_facts ~= nil then
+                class_facts.total = class_facts.total + 1
+                if record.alive == true then
+                    class_facts.alive = class_facts.alive + 1
+                end
+            end
         end
         if record.class == Constants.MEDIC_CLASS
             and record.connected ~= false and record.valid ~= false
@@ -752,6 +781,8 @@ function Tracking.reconcile(tracker, snapshot)
         generation = tracker.generation,
         roster_available = snapshot.roster_available,
         alive_counts = alive_counts,
+        team_player_counts = team_player_counts,
+        offclass_counts = offclass_counts,
         candidates = candidates,
         dead_candidates = dead_candidates,
         local_userid = tracker.local_userid,
@@ -759,6 +790,11 @@ function Tracking.reconcile(tracker, snapshot)
         last_local_team = tracker.last_local_team,
         local_class = local_class,
         local_alive = local_alive,
+        is_casual = snapshot.is_casual,
+        is_competitive = snapshot.is_competitive,
+        is_tournament = snapshot.is_tournament,
+        is_highlander = snapshot.is_highlander,
+        configured_player_slots = snapshot.configured_player_slots,
     }
 end
 

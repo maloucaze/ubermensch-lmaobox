@@ -26,6 +26,9 @@ end
 
 Harness.test("validation runtime records real decisions events Draw and marker", function()
     local host, memory = Fakes.validation_host()
+    host.state.casual = false
+    host.state.competitive = true
+    host.state.convars.sv_visiblemaxplayers = 12
     local recorder = Recorder.new(host)
     local app = App.start(host, {
         observer = recorder,
@@ -49,12 +52,13 @@ Harness.test("validation runtime records real decisions events Draw and marker",
 
     local output = all_output(memory)
     Harness.contains(output, '"type":"session_start"')
-    Harness.contains(output, '"recorder_version":"1.5.0"')
+    Harness.contains(output, '"recorder_version":"1.6.0"')
     Harness.contains(output, '"type":"event"')
     Harness.contains(output, '"name":"player_chargedeployed"')
     Harness.contains(output, '"type":"decision"')
     Harness.contains(output, '"self_mode":false')
     Harness.contains(output, '"team_counts"')
+    Harness.contains(output, '"configured_player_slots"')
     Harness.contains(output, '"2 vs. 1"')
     Harness.contains(output, '"type":"selection_checkpoint"')
     Harness.contains(output, '"type":"draw"')
@@ -66,6 +70,42 @@ Harness.test("validation runtime records real decisions events Draw and marker",
     Harness.falsy(string.find(output, "SteamID", 1, true))
     Harness.contains(output, '"type":"session_end"')
     Harness.falsy(string.find(output, "player_say", 1, true))
+end)
+
+Harness.test("validation decisions include off-class format and color evidence", function()
+    local host, memory = Fakes.validation_host()
+    local sniper = Fakes.player({
+        index = 4,
+        team = 3,
+        class = 2,
+        alive = false,
+    })
+    host.state.players[4] = sniper
+    host.state.userids[4] = 40
+    host.state.casual = false
+    host.state.competitive = true
+    host.state.convars.sv_visiblemaxplayers = 12
+    host.state.resource = Fakes.resource({
+        [1] = { connected = true, valid = true, alive = true, team = 2, userid = 10, class = 1, charge = 0 },
+        [2] = { connected = true, valid = true, alive = true, team = 2, userid = 20, class = 5, charge = 75 },
+        [3] = { connected = true, valid = true, alive = true, team = 3, userid = 30, class = 5, charge = 50 },
+        [4] = { connected = true, valid = true, alive = false, team = 3, userid = 40, class = 2, charge = 0 },
+    })
+    local recorder = Recorder.new(host)
+    local app = App.start(host, {
+        observer = recorder,
+        adapter_diagnostics = true,
+    })
+    Harness.truthy(app ~= nil)
+    host.state.callbacks.FrameStageNotify(4)
+    host.state.callbacks.Draw()
+    host.state.callbacks.Unload()
+
+    local output = all_output(memory)
+    Harness.contains(output, '"format":"6v6"')
+    Harness.contains(output, '"Off-class: SNIPER"')
+    Harness.contains(output, '"offclass_segments"')
+    Harness.contains(output, '"team_player_counts"')
 end)
 
 Harness.test("verbose adapter diagnostics follow their fixed cadence", function()

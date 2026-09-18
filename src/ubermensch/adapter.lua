@@ -88,6 +88,64 @@ local function integer(value)
     return nil
 end
 
+--- Validates an integer-valued console variable, including numeric strings.
+-- @param value Raw client.GetConVar result.
+-- @return number|nil Finite integer, otherwise nil.
+local function convar_integer(value)
+    if type(value) == "string" then
+        value = tonumber(value)
+    end
+    return integer(value)
+end
+
+--- Reads a strict boolean result from an optional gamerules function.
+-- @param library Host gamerules library.
+-- @param name Function name.
+-- @return boolean|nil Valid result, otherwise nil.
+local function optional_host_boolean(library, name)
+    local ok, value = Safe.library(library, name)
+    if not ok then
+        return nil
+    end
+    return boolean(value)
+end
+
+--- Reads a zero-or-one console variable as a boolean.
+-- @param client Host client library.
+-- @param name Console-variable name.
+-- @return boolean|nil Valid boolean, otherwise nil.
+local function convar_boolean(client, name)
+    local ok, value = Safe.library(client, "GetConVar", name)
+    value = ok and convar_integer(value) or nil
+    if value == 0 then
+        return false
+    end
+    if value == 1 then
+        return true
+    end
+    return nil
+end
+
+--- Reads the configured server capacity from documented globals first.
+-- `sv_visiblemaxplayers` is a compatibility fallback. Nonpositive values and
+-- negative sentinels deliberately leave format detection to roster inference.
+-- @param globals Host globals library.
+-- @param client Host client library.
+-- @return number|nil Valid slot count, otherwise nil.
+local function configured_player_slots(globals, client)
+    local ok, value = Safe.library(globals, "MaxClients")
+    value = ok and integer(value) or nil
+    if value ~= nil and value > 0 then
+        return value
+    end
+    ok, value = Safe.library(client, "GetConVar", "sv_visiblemaxplayers")
+    value = ok and convar_integer(value) or nil
+    if value == nil or value <= 0 then
+        return nil
+    end
+    return value
+end
+
 --- Resolves a transient entity's validated positive index.
 -- @param entity Transient LMAOBox Entity.
 -- @return number|nil Entity index.
@@ -552,6 +610,17 @@ function Adapter:capture(diagnostics_override)
     else
         is_mvm = nil
     end
+    local is_casual = optional_host_boolean(
+        host.gamerules,
+        "IsMatchTypeCasual"
+    )
+    local is_competitive = optional_host_boolean(
+        host.gamerules,
+        "IsMatchTypeCompetitive"
+    )
+    local is_tournament = convar_boolean(host.client, "mp_tournament")
+    local is_highlander = convar_boolean(host.client, "mp_highlander")
+    local player_slots = configured_player_slots(host.globals, host.client)
 
     local rows = {}
     local by_userid = {}
@@ -913,6 +982,11 @@ function Adapter:capture(diagnostics_override)
         map = map,
         round_state = round_state,
         is_mvm = is_mvm,
+        is_casual = is_casual,
+        is_competitive = is_competitive,
+        is_tournament = is_tournament,
+        is_highlander = is_highlander,
+        configured_player_slots = player_slots,
         phase = Constants.SETUP_ROUND_STATE[round_state] and "setup" or "running",
         roster_available = roster_available,
         players = rows,

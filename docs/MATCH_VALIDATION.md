@@ -73,7 +73,8 @@ The console prints each marker number. Keep a small external note such as:
 ```
 
 Markers include the active decision sequence, Draw result, blocker, and current
-four-line HUD. They do not capture text typed by the player.
+four required HUD lines plus the optional off-class line. They do not capture
+text typed by the player.
 
 ## Recommended coverage
 
@@ -111,7 +112,8 @@ time, sequence number, type, and data object. Important record types are:
 - `event`: every production event plus privacy-safe player/round/map lifecycle
   events relevant to interpreting a match;
 - `context` and `map_transition`: capture stage, map, round, phase, local
-  identity facts, roster authority, and discovery count;
+  identity facts, roster authority, casual/competitive/tournament/Highlander
+  facts, configured visible slots, and discovery count;
 - `resource_tables` and `resource_row`: table availability, disconnected and
   malformed-slot counts, N-to-N+1 association for connected or malformed rows,
   validation results, and accepted approximate charge;
@@ -125,8 +127,9 @@ time, sequence number, type, and data object. Important record types are:
 - `candidate`: every living candidate and retained dead fallback presented to
   the respective linear selectors, distinguished by `dead` and `died_at`;
 - `decision`: the actual selected sides, mode, Uber comparison, resolved
-  local-first alive-player counts, four formatted lines, colors, whole-second
-  per-side readiness text, and warning-border decision used by the HUD;
+  local-first alive-player counts, connected team sizes, optional enemy
+  off-class model, four required formatted lines, optional fifth-line segments
+  and colors, and whole-second per-side readiness text used by the HUD;
 - `selection_checkpoint`: a complete available product-pipeline checkpoint
   written immediately whenever either selected identity or dead/missing/unknown
   selection state changes, including the previous selection; it explicitly
@@ -168,6 +171,9 @@ team-count line and resolved alive-count evidence to decision records. Version
 1.4.1 simplifies that evidence to the literal local-first counts and their fixed
 white presentation. Version 1.5.0 records the expanded Quick-Fix and
 display-only Vaccinator family decisions without changing the JSONL format.
+Version 1.6.0 adds competitive-format inputs, connected team sizes, and the
+optional enemy off-class decision and mixed-color display segments; it also
+removes the obsolete warning-border decision.
 
 ## Privacy and evidentiary limits
 

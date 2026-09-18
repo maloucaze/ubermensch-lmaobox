@@ -95,6 +95,11 @@ local function context_changed(self, info, local_alias)
         or previous.round_state ~= snapshot.round_state
         or previous.phase ~= snapshot.phase
         or previous.is_mvm ~= snapshot.is_mvm
+        or previous.is_casual ~= snapshot.is_casual
+        or previous.is_competitive ~= snapshot.is_competitive
+        or previous.is_tournament ~= snapshot.is_tournament
+        or previous.is_highlander ~= snapshot.is_highlander
+        or previous.configured_player_slots ~= snapshot.configured_player_slots
         or previous.roster_available ~= snapshot.roster_available
         or previous.local_alias ~= local_alias
         or previous.local_team ~= snapshot.local_team
@@ -107,6 +112,11 @@ local function context_changed(self, info, local_alias)
         previous.round_state = snapshot.round_state
         previous.phase = snapshot.phase
         previous.is_mvm = snapshot.is_mvm
+        previous.is_casual = snapshot.is_casual
+        previous.is_competitive = snapshot.is_competitive
+        previous.is_tournament = snapshot.is_tournament
+        previous.is_highlander = snapshot.is_highlander
+        previous.configured_player_slots = snapshot.configured_player_slots
         previous.roster_available = snapshot.roster_available
         previous.local_alias = local_alias
         previous.local_team = snapshot.local_team
@@ -170,6 +180,9 @@ local function decision_changed(self, info)
     local prepared = info.prepared
     local lines = prepared ~= nil and prepared.lines or nil
     local colors = prepared ~= nil and prepared.colors or nil
+    local segments = prepared ~= nil and prepared.offclass_segments or nil
+    local offclasses = model ~= nil and model.offclasses or nil
+    local offclass_format = offclasses ~= nil and offclasses.format or nil
     local previous = self.last_decision
     local changed = previous == nil
         or previous.roster_available ~= info.tracking.roster_available
@@ -186,15 +199,24 @@ local function decision_changed(self, info)
         or previous.enemy_deployment_source ~= ed
         or previous.enemy_deployed ~= ea
         or previous.self_mode ~= self_mode(model)
+        or previous.offclass_format ~= offclass_format
         or previous.line1 ~= (lines ~= nil and lines[1] or nil)
         or previous.line2 ~= (lines ~= nil and lines[2] or nil)
         or previous.line3 ~= (lines ~= nil and lines[3] or nil)
         or previous.line4 ~= (lines ~= nil and lines[4] or nil)
+        or previous.line5 ~= (lines ~= nil and lines[5] or nil)
         or previous.color1 ~= (colors ~= nil and colors[1] or nil)
         or previous.color2 ~= (colors ~= nil and colors[2] or nil)
         or previous.color3 ~= (colors ~= nil and colors[3] or nil)
         or previous.color4 ~= (colors ~= nil and colors[4] or nil)
-        or previous.warning ~= (prepared ~= nil and prepared.warning or nil)
+        or previous.offclass_color1 ~= (segments ~= nil
+            and segments[1] ~= nil and segments[1].color or nil)
+        or previous.offclass_color2 ~= (segments ~= nil
+            and segments[2] ~= nil and segments[2].color or nil)
+        or previous.offclass_color3 ~= (segments ~= nil
+            and segments[3] ~= nil and segments[3].color or nil)
+        or previous.offclass_color4 ~= (segments ~= nil
+            and segments[4] ~= nil and segments[4].color or nil)
     if changed then
         previous = previous or {}
         previous.roster_available = info.tracking.roster_available
@@ -215,15 +237,24 @@ local function decision_changed(self, info)
         previous.enemy_deployment_source = ed
         previous.enemy_deployed = ea
         previous.self_mode = self_mode(model)
+        previous.offclass_format = offclass_format
         previous.line1 = lines ~= nil and lines[1] or nil
         previous.line2 = lines ~= nil and lines[2] or nil
         previous.line3 = lines ~= nil and lines[3] or nil
         previous.line4 = lines ~= nil and lines[4] or nil
+        previous.line5 = lines ~= nil and lines[5] or nil
         previous.color1 = colors ~= nil and colors[1] or nil
         previous.color2 = colors ~= nil and colors[2] or nil
         previous.color3 = colors ~= nil and colors[3] or nil
         previous.color4 = colors ~= nil and colors[4] or nil
-        previous.warning = prepared ~= nil and prepared.warning or nil
+        previous.offclass_color1 = segments ~= nil
+            and segments[1] ~= nil and segments[1].color or nil
+        previous.offclass_color2 = segments ~= nil
+            and segments[2] ~= nil and segments[2].color or nil
+        previous.offclass_color3 = segments ~= nil
+            and segments[3] ~= nil and segments[3].color or nil
+        previous.offclass_color4 = segments ~= nil
+            and segments[4] ~= nil and segments[4].color or nil
         self.last_decision = previous
     end
     return changed
@@ -529,6 +560,11 @@ local function checkpoint_view(self, info)
             round_state = info.snapshot.round_state,
             phase = info.snapshot.phase,
             is_mvm = info.snapshot.is_mvm,
+            is_casual = info.snapshot.is_casual,
+            is_competitive = info.snapshot.is_competitive,
+            is_tournament = info.snapshot.is_tournament,
+            is_highlander = info.snapshot.is_highlander,
+            configured_player_slots = info.snapshot.configured_player_slots,
             roster_available = info.snapshot.roster_available,
             local_uid = views:user_alias(info.snapshot.local_userid),
             local_team = info.snapshot.local_team,
@@ -777,6 +813,11 @@ function Recorder:on_capture(info)
             round_state = info.snapshot.round_state,
             phase = info.snapshot.phase,
             is_mvm = info.snapshot.is_mvm,
+            is_casual = info.snapshot.is_casual,
+            is_competitive = info.snapshot.is_competitive,
+            is_tournament = info.snapshot.is_tournament,
+            is_highlander = info.snapshot.is_highlander,
+            configured_player_slots = info.snapshot.configured_player_slots,
             roster_available = info.snapshot.roster_available,
             local_uid = local_alias,
             local_team = info.snapshot.local_team,

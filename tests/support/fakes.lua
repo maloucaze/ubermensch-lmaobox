@@ -235,6 +235,9 @@ function Fakes.host(options)
         font_creations = 0,
         host_unloading = false,
         delta_tick = options.delta_tick,
+        casual = options.casual,
+        competitive = options.competitive,
+        convars = options.convars or {},
         find_by_class_calls = {},
         input_calls = {},
     }
@@ -272,6 +275,9 @@ function Fakes.host(options)
             local userid = state.userids[index]
             return userid ~= nil and { UserID = userid } or nil
         end,
+        GetConVar = function(name)
+            return state.convars[name]
+        end,
     }
     if options.delta_tick ~= nil then
         host.clientstate = {
@@ -291,9 +297,12 @@ function Fakes.host(options)
     host.gamerules = {
         IsMvM = function() return state.mvm end,
         GetRoundState = function() return state.round_state end,
+        IsMatchTypeCasual = function() return state.casual end,
+        IsMatchTypeCompetitive = function() return state.competitive end,
     }
     host.globals = {
         RealTime = function() return state.now end,
+        MaxClients = function() return options.max_clients end,
     }
     host.draw = {
         CreateFont = function(...)

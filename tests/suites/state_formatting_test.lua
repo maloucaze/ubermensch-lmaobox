@@ -30,7 +30,6 @@ Harness.test("exact baseline formatting", function()
             local_count = 8,
             enemy_count = 3,
         },
-        warning = false,
     }
     local prepared = Formatting.prepare(model)
     Harness.same_table(prepared.lines, {
@@ -57,7 +56,6 @@ Harness.test("equal columns align exactly with whole numbers", function()
             local_count = 12,
             enemy_count = 12,
         },
-        warning = false,
     })
     Harness.same_table(prepared.lines, {
         "RED | 50% | 20s | STOCK",
@@ -81,7 +79,6 @@ Harness.test("team counts format factual and unavailable roster states", functio
             local_count = 1,
             enemy_count = 2,
         },
-        warning = false,
     }
     local prepared = Formatting.prepare(model)
     Harness.equal(prepared.lines[4], "1 vs. 2")
@@ -99,6 +96,50 @@ Harness.test("team counts format factual and unavailable roster states", functio
     )
 end)
 
+Harness.test("off-class line uses fixed order counts and life-state colors", function()
+    local model = {
+        local_side = Fixtures.side(2, "STOCK", 50, "current", false),
+        enemy_side = Fixtures.side(3, "STOCK", 50, "current", false),
+        comparison = {
+            status = "EQL",
+            charge_difference = 0,
+            time_difference = 0,
+        },
+        team_counts = { available = true, local_count = 6, enemy_count = 6 },
+        offclasses = {
+            format = "6v6",
+            classes = {
+                { label = "SNIPER", count = 2, alive = true },
+                { label = "SPY", count = 1, alive = false },
+            },
+        },
+    }
+    local prepared = Formatting.prepare(model)
+    Harness.equal(prepared.lines[5], "Off-class: SNIPER (2), SPY")
+    Harness.equal(#prepared.offclass_segments, 4)
+    Harness.same_table(
+        prepared.offclass_segments[1].color,
+        Constants.OFFCLASS_COLORS.label
+    )
+    Harness.same_table(
+        prepared.offclass_segments[2].color,
+        Constants.OFFCLASS_COLORS.alive
+    )
+    Harness.same_table(
+        prepared.offclass_segments[3].color,
+        Constants.OFFCLASS_COLORS.label
+    )
+    Harness.same_table(
+        prepared.offclass_segments[4].color,
+        Constants.OFFCLASS_COLORS.dead
+    )
+
+    model.offclasses = nil
+    Formatting.prepare(model, prepared)
+    Harness.is_nil(prepared.lines[5])
+    Harness.equal(#prepared.offclass_segments, 0)
+end)
+
 Harness.test("BLU local side is listed first", function()
     local blue = Fixtures.side(3, "STOCK", 50, "current", false)
     local red = Fixtures.side(2, "KRITZ", 75, "current", false)
@@ -106,7 +147,6 @@ Harness.test("BLU local side is listed first", function()
         local_side = blue,
         enemy_side = red,
         comparison = { status = "DIS", charge_difference = -25, time_difference = -12 },
-        warning = false,
     })
     Harness.equal(prepared.lines[1], "BLU |  50% |  20s | STOCK")
     Harness.equal(prepared.lines[2], "RED |  75% |   8s | KRITZ")
@@ -123,18 +163,16 @@ Harness.test("missing side formatting omits time", function()
         "ADV | +75% |   -",
         "1 vs. 1",
     })
-    Harness.falsy(prepared.warning)
     Harness.truthy(model.team_counts.available)
 end)
 
-Harness.test("approximate formatting and border", function()
+Harness.test("approximate formatting remains explicit in text", function()
     local local_side = Fixtures.side(2, "STOCK", 88, "estimate", false, "estimate")
     local enemy = Fixtures.side(3, "KRITZ", 73, "current", false)
     local prepared = Formatting.prepare({
         local_side = local_side,
         enemy_side = enemy,
         comparison = { status = "EQL", charge_difference = 15, time_difference = 3.75 },
-        warning = true,
     })
     Harness.same_table(prepared.lines, {
         "RED |  ~88% |  ~5s | STOCK",
@@ -142,7 +180,6 @@ Harness.test("approximate formatting and border", function()
         "EQL | ~+15% | ~+4s",
         "- vs. -",
     })
-    Harness.truthy(prepared.warning)
 end)
 
 Harness.test("resource readiness is marked approximate", function()
@@ -166,7 +203,6 @@ Harness.test("retained family marks otherwise current differences approximate", 
         local_side = local_side,
         enemy_side = enemy,
         comparison = { status = "ADV", charge_difference = 30, time_difference = 12 },
-        warning = true,
     })
     Harness.equal(prepared.lines[1], "RED |   80% |   ~8s | STOCK")
     Harness.equal(prepared.lines[3], "ADV | ~+30% | ~+12s")
@@ -184,7 +220,6 @@ Harness.test("genuinely unknown fields produce dash", function()
         "-",
         "1 vs. 1",
     })
-    Harness.truthy(prepared.warning)
 end)
 
 Harness.test("two confirmed missing sides compare equal", function()
@@ -195,10 +230,9 @@ Harness.test("two confirmed missing sides compare equal", function()
         "EQL | 0% | -",
         "1 vs. 1",
     })
-    Harness.falsy(prepared.warning)
 end)
 
-Harness.test("dead Medic is compact gray and does not warn", function()
+Harness.test("dead Medic is compact and gray", function()
     local dead = {
         userid = 20,
         entity_index = 2,
@@ -217,7 +251,6 @@ Harness.test("dead Medic is compact gray and does not warn", function()
     Harness.equal(prepared.lines[3], "EQL | 0% | -")
     Harness.same_table(prepared.colors[1], Constants.COLORS.unavailable)
     Harness.same_table(prepared.colors[2], Constants.COLORS.unavailable)
-    Harness.falsy(prepared.warning)
 end)
 
 Harness.test("living unknown Medic outranks a dead Medic", function()
@@ -274,7 +307,6 @@ Harness.test("cached lines invalidate when only displayed readiness changes", fu
             charge_difference = -1.3,
             time_difference = -0.52,
         },
-        warning = false,
     }
     local prepared = Formatting.prepare(model)
     Harness.equal(prepared.lines[1], "RED | 49% | 21s | STOCK")
@@ -294,7 +326,6 @@ Harness.test("a wider numeric token realigns every normal line", function()
             charge_difference = 0,
             time_difference = 0,
         },
-        warning = false,
     }
     local prepared = Formatting.prepare(model)
     Harness.equal(prepared.lines[2], "BLU | 99% | 0s | STOCK")
@@ -349,7 +380,6 @@ Harness.test("Vaccinator is display-only with no readiness or comparison", funct
     local prepared = Formatting.prepare(model)
     Harness.equal(prepared.lines[1], "RED | 50% |   - | VACC")
     Harness.equal(prepared.lines[3], "-")
-    Harness.falsy(prepared.warning)
     Harness.same_table(prepared.colors[1], Constants.COLORS.ready)
     Harness.same_table(
         Formatting.side_color(Fixtures.side(2, "VACC", 24, "current", true)),
@@ -451,7 +481,6 @@ Harness.test("failed roster never proves no Medic", function()
         "RED | ?% | - | UNKNOWN"
     )
     Harness.equal(Formatting.comparison_line(model), "-")
-    Harness.truthy(model.warning)
     Harness.falsy(model.team_counts.available)
     Harness.equal(Formatting.prepare(model).lines[4], "- vs. -")
 end)
@@ -475,11 +504,13 @@ Harness.test("all fixed RGBA values match the specification", function()
     Harness.same_table(Constants.COLORS.ready, { 255, 235, 60, 255 })
     Harness.same_table(Constants.COLORS.red_deployed, { 255, 80, 80, 255 })
     Harness.same_table(Constants.COLORS.blu_deployed, { 80, 160, 255, 255 })
-    Harness.same_table(Constants.COLORS.warning, { 170, 140, 0, 255 })
     Harness.same_table(Constants.COLORS.unavailable, { 170, 170, 170, 255 })
     Harness.same_table(Constants.COLORS.background, { 15, 15, 18, 170 })
     Harness.same_table(Constants.TEAM_COUNT_COLORS.text, { 255, 255, 255, 255 })
     Harness.same_table(Constants.TEAM_COUNT_COLORS.separator, { 170, 170, 170, 255 })
+    Harness.same_table(Constants.OFFCLASS_COLORS.label, { 255, 255, 255, 255 })
+    Harness.same_table(Constants.OFFCLASS_COLORS.alive, { 255, 255, 255, 255 })
+    Harness.same_table(Constants.OFFCLASS_COLORS.dead, { 170, 170, 170, 255 })
 end)
 
 Harness.test("formatting is ASCII and never emits interval states", function()

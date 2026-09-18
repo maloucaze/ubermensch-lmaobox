@@ -1,7 +1,7 @@
 # Ubermensch LMAOBox - Behavioral Specification
 
-Version 2.3.0
-Last updated: 2026-09-16
+Version 2.4.0
+Last updated: 2026-09-17
 
 ## 1. Product summary
 
@@ -11,6 +11,8 @@ the local player's team with the selected comparison-supported Medic on the
 opposing team. The Vaccinator has limited display-only support.
 Below the Uber comparison, it also reports the current alive-player counts in
 local-team-first order without classifying their tactical significance.
+In definite 6v6 or 4v4 competitive/tournament play, an optional fifth line
+reports enemy Snipers and Spies, including whether at least one is alive.
 
 When the local player is an alive Medic, the local side is that player alone.
 Otherwise, including while dead, the script selects the relevant Medic
@@ -21,7 +23,7 @@ The widget prioritizes current information whenever it is readable. Global
 roster data, server events, retained facts, and deterministic point estimates
 keep distant Medics useful. Every resource-derived or estimated numeric
 percentage, and every readiness derived from one or from a retained family, is
-marked with `~`; a dark-yellow border makes any non-current input visible.
+marked with `~`. No warning border is drawn.
 
 ## 2. Normative language
 
@@ -42,7 +44,10 @@ illustrate these rules and do not override them.
 - Alive self-Medic and team-comparison modes.
 - Active-first Medic selection and nearest-time-to-ready normal selection.
 - A fixed four-line, local-team-first, draggable HUD with a visual separator
-  between the Uber comparison and alive-player counts.
+  between the Uber comparison and alive-player counts, plus an optional
+  separately divided enemy off-class line in definite 6v6/4v4 play.
+- Enemy Sniper and Spy counts with alive/dead presentation in definite 6v6 and
+  4v4 competitive/tournament formats.
 - Persistent normalized position.
 
 ### 3.2 Excluded
@@ -58,6 +63,8 @@ illustrate these rules and do not override them.
 - User-editable runtime configuration.
 - Charge intervals, probabilistic estimates, or an `UNCERTAIN` status.
 - Forcing network updates or attempting to defeat Source PVS/dormancy.
+- Off-class reporting in casual, Highlander/9v9, unsupported, or uncertain
+  match formats, and classes other than Sniper and Spy.
 
 ## 4. Terms and data certainty
 
@@ -192,8 +199,8 @@ for the remaining elapsed time. Flashing acceleration is not modeled.
 
 An estimate reaching 100% remains there until a trustworthy deployment, death,
 spawn, inventory, or current/resource observation changes its anchor. Every
-estimated or resource-derived percentage is displayed with `~` and causes the
-warning border. Current information immediately replaces the estimate, even
+estimated or resource-derived percentage is displayed with `~`. Current
+information immediately replaces the estimate, even
 when the correction is large.
 
 ### 4.6 Missing, dead, and unknown
@@ -279,9 +286,37 @@ MUST be exactly `- vs. -`. Otherwise it is exactly
 `<LOCAL_ALIVE> vs. <ENEMY_ALIVE>`. The line is always ordinary white and MUST
 NOT contain `ADV`, `DIS`, `EQL`, a threshold, percentage, ratio, or any other
 classification. Last-known player counts MUST NOT be retained or presented as
-current. The unavailable line does not independently request the Uber
-data-warning border; roster unavailability may already request that border
-under Section 9.
+current.
+
+### 5.2 Enemy off-class detection
+
+The optional fifth line reports connected, valid enemy Snipers and Spies in
+definite 6v6 or 4v4 competitive/tournament play. Alive and dead players both
+contribute to the displayed class count. Spectators, unassigned players,
+disconnected slots, invalid rows, and the local team do not. Detection MUST use
+the complete authoritative roster and MUST be omitted when roster authority is
+unavailable.
+
+Casual play MUST always suppress the feature. A validated competitive match
+type or enabled `mp_tournament` is required. The configured visible player-slot
+count is preferred: 12 total slots identifies 6v6 and 8 identifies 4v4. An
+explicit 18-slot, `mp_highlander`, or any other valid unsupported capacity MUST
+be suppressed. Only when the slot count is missing, malformed, zero, or
+negative may the current complete roster infer the format from the
+larger RED/BLU team count, including dead players: exactly 4 identifies 4v4,
+5 or 6 identifies 6v6, below 4 is unknown, and above 6 is unsupported. This
+fallback intentionally prevents an observable 9v9 roster from being treated as
+6v6.
+
+The line is omitted when the format is not definite or neither tracked class is
+present. Otherwise it begins exactly `Off-class: ` and lists `SNIPER` before
+`SPY`, omitting absent classes. Duplicate instances use ` (N)`, for example
+`Off-class: SNIPER (2), SPY`. A class token is white when at least one detected
+player of that class is alive and gray only when every detected player of that
+class is dead. The prefix, comma, and spaces remain white. Roster changes,
+including death, respawn, connect, reconnect, disconnect, team change, and
+class change, MUST update the next resolved display without a separate polling
+cadence.
 
 ## 6. Source and state precedence
 
@@ -360,15 +395,18 @@ select that Medic.
 
 ## 8. HUD content and formatting
 
-The widget always uses exactly four text lines during supported gameplay. A
+The widget always uses four base text lines during supported gameplay. A
 one-pixel horizontal separator divides the first three Uber lines from the
-fourth alive-player-count line:
+fourth alive-player-count line. In the definite competitive formats specified
+by Section 5.2, a second separator and optional fifth line appear only while an
+enemy Sniper or Spy is detected:
 
 ```text
 <LOCAL_TEAM> | <LOCAL_CHARGE> | <LOCAL_TIME> | <LOCAL_FAMILY>
 <ENEMY_TEAM> | <ENEMY_CHARGE> | <ENEMY_TIME> | <ENEMY_FAMILY>
 <STATUS>     | <CHARGE_DIFFERENCE> | <TIME_DIFFERENCE>
 <LOCAL_ALIVE> vs. <ENEMY_ALIVE>
+[separator and `Off-class: ...` only when applicable]
 ```
 
 Examples:
@@ -378,6 +416,7 @@ RED |  75% |   8s | KRITZ
 BLU |  50% |  20s | STOCK
 ADV | +25% | +12s
 8 vs. 3
+Off-class: SNIPER (2), SPY
 ```
 
 ```text
@@ -402,7 +441,7 @@ RED | DEAD MED
 
 The local player's team is first. Team labels are `RED` and `BLU`. Family
 labels are `STOCK`, `KRITZ`, `QF`, `VACC`, or `UNKNOWN`; unavailable labels are `NO MED` and
-`DEAD MED`. Names and additional labels are never shown.
+`DEAD MED`. Medic player names and additional Medic labels are never shown.
 
 Current percentages are whole numbers. Resource-derived and estimated percentages use
 `~N%`. No percentage interval is shown. Unknown charge uses `?%`. Team-line
@@ -420,9 +459,10 @@ classification occur before display rounding.
 
 All text MUST be printable ASCII. Deployment does not change text or stop
 comparison updates. The alive-player line is not padded to the Uber numeric
-columns and uses exactly one space around `vs.` as shown.
+columns and uses exactly one space around `vs.` as shown. The optional
+off-class line is not padded to either preceding layout.
 
-## 9. Colors and warning border
+## 9. Colors
 
 | Role | RGBA |
 |---|---|
@@ -432,7 +472,6 @@ columns and uses exactly one space around `vs.` as shown.
 | Guaranteed ready | `(255, 235, 60, 255)` |
 | RED deployed | `(255, 80, 80, 255)` |
 | BLU deployed | `(80, 160, 255, 255)` |
-| Data warning border | `(170, 140, 0, 255)` |
 | Unavailable Medic | `(170, 170, 170, 255)` |
 | Background | `(15, 15, 18, 170)` |
 
@@ -443,25 +482,29 @@ Alive-player presentation uses separate fixed constants from the Uber palette:
 | Text, including unavailable | `(255, 255, 255, 255)` |
 | Separator | `(170, 170, 170, 255)` |
 
+Off-class presentation uses separate fixed constants:
+
+| Off-class role | RGBA |
+|---|---|
+| Prefix, punctuation, alive class | `(255, 255, 255, 255)` |
+| Class with every detected instance dead | `(170, 170, 170, 255)` |
+
 The entire third line uses its status color; `-` uses ordinary white. A team line
 uses its deployed team color while current or event/estimate-derived conventional
 deployment is active, otherwise yellow when its current or estimated charge is
 100%, otherwise white. Vaccinator ignores deployment state and is yellow at
 25% or greater, otherwise white. `NO MED` and `DEAD MED` lines are gray.
 The fourth line always uses its independent ordinary-white team-count color.
-
-A one-pixel dark-yellow border MUST appear when any selected family, charge, or
-deployment input used by a comparison-supported side is approximate, estimated,
-retained, or unknown, or when roster authority is temporarily unavailable.
-Vaccinator deployment is outside the limited support contract and does not
-request a border. Confirmed `NO MED` and `DEAD MED` states
-do not cause a warning border by themselves. It MUST NOT appear when both sides
-are fully current or authoritatively unavailable.
+The fifth-line prefix and punctuation are white. Each Sniper or Spy token is
+white when any represented player of that class is alive and gray only when
+all represented players of that class are dead. The widget MUST NOT draw a
+data-quality warning border in any state; `~`, `?`, and `-` carry data-quality
+meaning in text.
 
 The widget uses the fixed-width Lucida Console face at size 14, weight 600,
 antialiasing, six pixels horizontal and four pixels vertical padding, one pixel
-between the three Uber lines, three pixels above and below the one-pixel
-separator, and the fixed background. The separator spans the content width
+between the three Uber lines, three pixels above and below each one-pixel
+separator, and the fixed background. Each separator spans the content width
 inside the horizontal padding. The fixed-width face makes the padded numeric
 columns visually align. There is no animation, blinking, pulsing, or sound.
 
@@ -513,9 +556,10 @@ FrameStageNotify, Draw, or event-processing fault emits one concise warning and
 disables only that callback path for the load.
 
 For `P` available player slots, network-stage snapshot, reconciliation,
-alive-player counting, and selection work MUST remain `O(P)` per update.
-Selection MUST NOT require sorting. Alive-player counting MUST be folded into
-an existing roster/tracker pass rather than adding a separate full-roster pass.
+alive-player counting, off-class summarization, and selection work MUST remain
+`O(P)` per update. Selection MUST NOT require sorting. Both roster summaries
+MUST be folded into an existing roster/tracker pass rather than adding a
+separate full-roster pass.
 Draw consumes the latest resolved display state. A newly readable current field
 at the preferred `FRAME_NET_UPDATE_END`, or at the authorized
 `FRAME_RENDER_START` fallback when stage 4 is absent, MUST be reflected on the
@@ -529,10 +573,12 @@ perform no roster/entity acquisition. This duplicate suppression is event-aware
 and MUST fail open when its optional revision source is unavailable.
 
 The font MUST be created once during initialization and reused. Each successfully
-rendered eligible frame MUST draw exactly one widget: one background rectangle,
-one separator rectangle, four text lines, and, only when required by Section 9,
-four warning-border strips. Ordinary steady-state Draw processing MUST NOT
-perform file I/O, schema
+rendered eligible base frame MUST draw exactly one widget: one background
+rectangle, one separator rectangle, and four text calls. A visible off-class
+line adds exactly one separator rectangle and one text call per fixed-color
+segment: prefix, each present class token, and the comma when both classes are
+present. No border rectangles are drawn. Ordinary steady-state Draw processing
+MUST NOT perform file I/O, schema
 inspection, network access, or routine console logging. Position storage may be
 written only when a drag completes or during unload as specified in Section 10.
 When the menu is closed and no drag is active, Draw MUST NOT query mouse

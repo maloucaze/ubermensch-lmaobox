@@ -3,7 +3,7 @@
 
 local Constants = {}
 
-Constants.VERSION = "2.3.0"
+Constants.VERSION = "2.4.0"
 Constants.PREFIX = "[Ubermensch]"
 
 Constants.TEAM = {
@@ -19,6 +19,14 @@ Constants.ENEMY_TEAM = {
     [3] = 2,
 }
 Constants.MEDIC_CLASS = 5
+Constants.SNIPER_CLASS = 2
+Constants.SPY_CLASS = 8
+
+Constants.COMPETITIVE_FORMAT_SLOTS = {
+    [8] = "4v4",
+    [12] = "6v6",
+}
+Constants.HIGHLANDER_SLOTS = 18
 
 Constants.ITEM_FAMILY = {
     [29] = "STOCK",
@@ -104,7 +112,6 @@ Constants.COLORS = {
     ready = { 255, 235, 60, 255 },
     red_deployed = { 255, 80, 80, 255 },
     blu_deployed = { 80, 160, 255, 255 },
-    warning = { 170, 140, 0, 255 },
     unavailable = { 170, 170, 170, 255 },
 }
 
@@ -112,6 +119,13 @@ Constants.COLORS = {
 Constants.TEAM_COUNT_COLORS = {
     text = { 255, 255, 255, 255 },
     separator = { 170, 170, 170, 255 },
+}
+
+-- Off-class colors are independent even where their RGBA values match the HUD.
+Constants.OFFCLASS_COLORS = {
+    label = { 255, 255, 255, 255 },
+    alive = { 255, 255, 255, 255 },
+    dead = { 170, 170, 170, 255 },
 }
 
 Constants.FONT = {

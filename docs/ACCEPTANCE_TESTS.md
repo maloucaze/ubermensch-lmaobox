@@ -1,7 +1,7 @@
 # Ubermensch LMAOBox - Acceptance Test Plan
 
-Version 2.3.0
-Last updated: 2026-09-16
+Version 2.4.0
+Last updated: 2026-09-17
 
 ## 1. Test principles
 
@@ -50,6 +50,24 @@ whenever complete roster authority or either count is unavailable. Tracker
 tests MUST prove that all connected, valid, alive RED/BLU classes count, that
 current lifecycle overrides lagging resource lifecycle before counting, and
 that unavailable roster data does not retain a factual count.
+
+### 2.2 Enemy off-class detection
+
+The pure off-class suite MUST prove that casual and noncompetitive play never
+produce a line; configured totals 12 and 8 identify 6v6 and 4v4; configured 18
+and explicit Highlander suppress detection. Every other valid unsupported
+capacity MUST also suppress detection. Missing, malformed, zero, or negative
+slot data falls back to complete connected RED/BLU roster counts. Fallback
+vectors MUST cover largest-team values below 4, exactly 4,
+5, 6, and above 6 so 4v4 and 6v6 are recognized and observable 9v9 is ignored.
+
+Tests MUST require complete roster authority, exclude spectators/unassigned and
+local-team classes, count alive and dead enemy Snipers and Spies, order SNIPER
+before SPY, append ` (N)` only for duplicate classes, and omit the line when no
+tracked enemy class exists. Mixed-life tests MUST prove a class is alive-colored
+when any instance is alive and dead-colored only when all instances are dead.
+Tracking tests MUST exercise roster and life-state changes through authoritative
+reconciliation without another roster pass.
 
 ## 3. Point estimation
 
@@ -163,7 +181,9 @@ Faked boundary tests MUST verify:
   acquisition; a changed revision or queued event captures immediately; an
   unavailable revision fails open; and the next Draw consumes the resulting
   resolved state without reacquiring it;
-- context, MvM, round, console, and game-UI gates are defensive; and
+- context, MvM, round, console, and game-UI gates are defensive;
+- optional competitive/casual match booleans plus `mp_tournament`,
+  `mp_highlander`, and configured visible slots are validated independently; and
 - a malformed entity cannot prevent use of another readable entity.
 
 ## 6. Selection
@@ -212,9 +232,8 @@ Automated state tests MUST cover:
 - genuinely unknown family/charge producing `-` on the third line, never zero;
 - Quick-Fix participating in ordinary readiness and comparison math;
 - Vaccinator showing charge but no readiness and forcing the third line to `-`;
-- estimated points remaining comparable with `ADV`, `DIS`, or `EQL` and a
-  border;
-- approximate resource data remaining comparable and bordered;
+- estimated points remaining comparable with `ADV`, `DIS`, or `EQL`;
+- approximate resource data remaining comparable and textually marked;
 - identity loss preserving last team lines but withdrawing the old factual
   comparison with `-` when no trustworthy anchor applies;
 - complete roster omission clearing obsolete selection identity;
@@ -224,7 +243,10 @@ Automated state tests MUST cover:
 - complete authoritative rosters resolving local-first alive counts without
   classifying them or depending on Medic selection; and
 - incomplete roster authority resolving the team-count line as unavailable
-  without retaining prior factual counts.
+  without retaining prior factual counts; and
+- definite supported competitive format resolving an enemy off-class model,
+  while casual, Highlander/9v9, uncertain format, incomplete roster, or no
+  detected Sniper/Spy resolves no off-class model.
 
 ## 8. Formatting
 
@@ -272,7 +294,7 @@ exactly `-`.
 Formatting tests MUST cover half-away point rounding, `~` on estimated/resource
 percentages, team readiness, and differences; retained-family readiness marked
 approximate; positive signs; negative zero normalization; whole-second team
-readiness; whole-number time differences; printable ASCII; exactly four text lines;
+readiness; whole-number time differences; printable ASCII; four required text lines;
 and exact `-` team readiness when either required side field is unavailable or
 the side is incomplete. They MUST prove aligned numeric columns, compact
 missing/dead lines, exactly one separator-padding space per side, and that no
@@ -283,11 +305,14 @@ is rebuilt when its rounded readiness changes even if its rounded percentage
 does not. Team-count formatting MUST use exactly
 `<LOCAL_ALIVE> vs. <ENEMY_ALIVE>` without Uber-column padding or a status, and
 its cached line MUST rebuild immediately when either count changes.
-The font contract MUST use the fixed-width Lucida Console face at size 14 and weight
-600 so character-column alignment is also visual alignment under the
-four-text-call render contract.
+Off-class formatting MUST cover exact `Off-class: SNIPER (2), SPY`, single-class
+forms, fixed order, omission when unavailable, prefix/punctuation white, an
+alive class token white, and an all-dead class token gray. Cache tests MUST
+prove count, presence, and life-color changes invalidate the optional line.
+The font contract MUST use the fixed-width Lucida Console face at size 14 and
+weight 600 so character-column alignment is also visual alignment.
 
-## 9. Colors and border
+## 9. Colors
 
 Automated tests MUST assert every fixed RGBA value in the specification.
 Conventional deployment team color precedes ready yellow; current or estimated
@@ -296,15 +321,9 @@ at 25% or greater, otherwise white. The third line is green, red, or white for `
 `EQL`; `-` is white. `NO MED` and `DEAD MED` are gray. No amber status role exists.
 Separate team-count constants MUST contain the specified white text and gray
 separator RGBA values. The fourth line MUST remain white for factual and
-unavailable counts.
-
-The dark-yellow border MUST be absent for current, confirmed-missing, and
-confirmed-dead inputs alone, and present
-if either side is resource-derived, estimated, retained, or unknown, or roster
-authority is unavailable.
-Vaccinator deployment availability alone MUST NOT request the border.
-The panel remains one background rectangle plus one separator rectangle and
-four warning-border strips.
+unavailable counts. Separate off-class constants MUST assert white
+prefix/punctuation/alive tokens and gray all-dead tokens. No data-quality state
+may add a border rectangle.
 
 Position and renderer tests MUST prove that fractional normalized placement and
 fractional measured dimensions are rounded to integral, fully clamped draw
@@ -322,12 +341,13 @@ Controller tests MUST drive consecutive frames to prove:
 - one side continues updating while the other advances from its immutable
   trustworthy anchor;
 - far/dormant data never remains silently exact;
-- current reacquisition removes the warning border once every selected
-  non-missing field is current;
 - events are queued without performing domain work inside the callback;
 - deaths, respawns, connects, disconnects, and team changes reflected by the
   next authoritative reconciliation update the fourth line for the next Draw;
-- rendering remains one four-line widget with one separator per eligible frame;
+- off-class roster and life-state changes reach the next Draw when the feature
+  is eligible;
+- rendering remains one widget with four required lines and one separator,
+  adding only the second separator and mixed-color fifth line when eligible;
 - dragging is menu-only, preserves pointer offset, clamps to screen, and saves
   only on completion/unload; and
 - unload is idempotent and disables subsequent work.
@@ -343,14 +363,15 @@ Automated tests and static review MUST establish that:
 
 - repeated eligible Draw calls create no additional fonts and render exactly one
   background rectangle, one separator rectangle, and four text calls per frame;
-- warning-border frames add exactly four border rectangles and no extra text;
+- an off-class frame adds exactly one separator and one text call per required
+  fixed-color segment, with no border rectangles;
 - newly readable current fields appear on the next Draw after network capture;
 - ordinary non-dragging Draw calls cause no position writes, and a completed drag
   causes only the specified save;
 - a closed menu causes no mouse-position or mouse-button queries, while opening
   the menu preserves the documented drag behavior;
 - unchanged formatting and layout reuse their bounded prepared/bounds storage,
-  but rounded text, colors, warning state, resolution, position, and dragging
+  but rounded text, colors, off-class content, resolution, position, and dragging
   still invalidate the appropriate result;
 - the event queue retains the newest 64 normalized events in order, drops older
   overflow, and is emptied after reconciliation;
@@ -362,7 +383,9 @@ Automated tests and static review MUST establish that:
   player-roster scan and remains linear in the available player slots; and
 - alive-player counting occurs inside an existing linear tracking pass and adds
   no entity acquisition, Draw-time roster work, event-only count drift, or
-  unbounded retained count history.
+  unbounded retained count history; and
+- off-class counts and format-fallback team sizes are accumulated inside that
+  same pass without sorting, a second roster scan, or Draw-time acquisition.
 
 The performance suite MUST also establish that a 32-player roster containing
 only two possible alive Medics performs active/loadout inspection only for those
@@ -371,8 +394,9 @@ reads do not allocate a new closure per boundary call. Validation-recorder tests
 MUST establish cadence-gated raw diagnostics, immediate decision/event/Draw
 records, forced diagnostic follow-up after an unsampled selection transition,
 bounded buffering, and one batched same-part write per flush. Decision records
-MUST include the fourth line, its color, and resolved alive counts so a
-recording can audit the feature without trusting formatted text alone.
+MUST include the fourth line, its color, resolved alive counts, optional
+fifth-line segments/colors, off-class model, and match-format evidence so a
+recording can audit both roster features without trusting formatted text alone.
 
 Performance-sensitive changes MUST be reviewed for avoidable per-frame resource
 creation, file or network access, logging, and unbounded tables. Automated checks
